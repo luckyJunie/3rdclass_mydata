@@ -7,103 +7,79 @@ from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 import os
 from datetime import datetime
+import requests
 
 st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
+# =========================================================================
+# 🔒 [보안] API Key 가져오기 (Secrets 기능 사용)
+# =========================================================================
+# 코드에 키를 직접 적지 않고, 금고(st.secrets)에서 꺼내옵니다.
+try:
+    YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
+except:
+    # 아직 Secrets 설정을 안 했을 경우를 대비해 에러 방지
+    YOUTUBE_API_KEY = ""
+
 # --------------------------------------------------------------------------
-# 🎨 [CSS 스타일 주입] 여기가 디자인을 바꾸는 마법의 구간입니다
+# 🎨 [CSS 스타일] 디자인 (Pretendard 폰트 + 모던 UI)
 # --------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* 1. 폰트 적용 (Pretendard - 요즘 가장 핫한 한글 폰트) */
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
     
     html, body, [class*="css"] {
         font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
     }
-
-    /* 2. 전체 배경 및 메인 컬러 */
-    .stApp {
-        background-color: #FFFFFF; /* 아주 깨끗한 화이트 */
-    }
+    .stApp { background-color: #FFFFFF; }
     
-    /* 3. 사이드바 스타일 (연한 그레이) */
     section[data-testid="stSidebar"] {
         background-color: #F8F9FA;
         border-right: 1px solid #EAEAEA;
     }
-
-    /* 4. 헤더(제목) 스타일 */
-    h1 {
-        color: #111111;
-        font-weight: 800; /* 아주 굵게 */
-        letter-spacing: -1.5px; /* 자간 좁게 (세련된 느낌) */
-    }
-    h2, h3 {
-        color: #333333;
-        font-weight: 700;
-        letter-spacing: -1px;
-    }
     
-    /* 5. 포인트 컬러 (블루) - 숫자(Metric) 강조 */
+    h1 { color: #111111; font-weight: 800; letter-spacing: -1.5px; }
+    h2, h3 { color: #333333; font-weight: 700; letter-spacing: -1px; }
+    
     div[data-testid="stMetricValue"] {
-        color: #2962FF; /* 일렉트릭 블루 */
+        color: #2962FF; /* 포인트 블루 */
         font-weight: 800;
         font-size: 36px !important;
     }
-    div[data-testid="stMetricLabel"] {
-        color: #888888;
-        font-size: 14px;
-        font-weight: 500;
-    }
-
-    /* 6. 버튼 스타일 (블루 배경 + 화이트 글씨) */
+    
     div.stButton > button {
         background-color: #2962FF;
         color: white;
         border: none;
-        border-radius: 8px; /* 둥근 모서리 */
+        border-radius: 8px;
         font-weight: 600;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
     }
     div.stButton > button:hover {
-        background-color: #0039CB; /* 호버 시 더 진한 블루 */
+        background-color: #0039CB;
         color: white;
-        box-shadow: 0 4px 12px rgba(41, 98, 255, 0.3);
     }
     
-    /* 7. 입력창 스타일 (모던한 그레이) */
     .stTextInput > div > div > input, 
-    .stSelectbox > div > div > div {
+    .stSelectbox > div > div > div,
+    .stTextArea > div > div > textarea {
         background-color: #F8F9FA;
         border: 1px solid #E0E0E0;
         border-radius: 8px;
-        color: #333333;
     }
     
-    /* 8. 탭/체크박스 포인트 컬러 */
-    .stCheckbox > label > div[role="checkbox"][aria-checked="true"] {
-        background-color: #2962FF !important;
-        border-color: #2962FF !important;
-    }
-    
-    /* 9. 알림창(Success, Info) 스타일 */
-    .stAlert {
-        border-radius: 8px;
-        border: none;
-    }
+    .stAlert { border-radius: 8px; border: none; }
 </style>
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
-# 기존 로직 시작
+# 다국어 설정 및 함수들
 # --------------------------------------------------------------------------
 
-# 1. 다국어 설정
 lang_dict = {
     'ko': {
-        'title': "SEOUL TOILET FINDER", # 영문 타이틀이 디자인적으로 더 예쁨
+        'title': "SEOUL TOILET FINDER",
         'desc': "서울시 공중화장실, 지하철, 편의점 위치 안내 서비스",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "현재 위치 (예: 강남역, 시청)",
@@ -132,7 +108,10 @@ lang_dict = {
         'fb_types': ["정보 수정", "오류 신고", "기타 의견"],
         'fb_msg': "내용을 입력해주세요",
         'fb_btn': "의견 보내기",
-        'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙"
+        'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙",
+        'youtube_title': "📺 주변 분위기 (Vlog)",
+        'youtube_error': "영상을 불러올 수 없습니다.",
+        'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요."
     },
     'en': {
         'title': "SEOUL TOILET FINDER",
@@ -164,7 +143,10 @@ lang_dict = {
         'fb_types': ["Correction", "Bug Report", "Other"],
         'fb_msg': "Message",
         'fb_btn': "Submit",
-        'fb_success': "Thank you! Feedback sent. 💙"
+        'fb_success': "Thank you! Feedback sent. 💙",
+        'youtube_title': "📺 Nearby Vibe (Vlog)",
+        'youtube_error': "Cannot load video.",
+        'youtube_need_key': "⚠️ Please set YouTube API Key in Secrets."
     }
 }
 
@@ -176,7 +158,31 @@ def toggle_language():
 
 txt = lang_dict[st.session_state.lang]
 
-# 2. 피드백 저장 함수
+# 유튜브 검색 함수 (키 확인 로직 포함)
+def search_youtube(query):
+    # 키가 비어있으면 검색하지 않음
+    if not YOUTUBE_API_KEY:
+        return None
+        
+    search_url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        'part': 'snippet',
+        'q': f"{query} 맛집 브이로그", # 검색어 최적화
+        'key': YOUTUBE_API_KEY,
+        'maxResults': 1,
+        'type': 'video'
+    }
+    try:
+        response = requests.get(search_url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            if 'items' in data and len(data['items']) > 0:
+                video_id = data['items'][0]['id']['videoId']
+                return f"https://www.youtube.com/watch?v={video_id}"
+    except:
+        pass
+    return None
+
 def save_feedback(fb_type, message):
     file_name = 'user_feedback.csv'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -187,7 +193,6 @@ def save_feedback(fb_type, message):
     else:
         new_data.to_csv(file_name, mode='a', header=False, index=False, encoding='utf-8-sig')
 
-# 3. 샘플 데이터
 def get_sample_extra_data():
     subway_data = [
         {'name': '시청역 1호선', 'lat': 37.5635, 'lon': 126.9754},
@@ -208,7 +213,6 @@ def get_sample_extra_data():
     ]
     return pd.DataFrame(subway_data), pd.DataFrame(store_data)
 
-# 4. 데이터 로드
 @st.cache_data
 def load_data(file):
     try:
@@ -225,7 +229,6 @@ def load_data(file):
         '남녀공용화장실여부': 'unisex', '기저귀교환대장소': 'diaper', 
         '비상벨설치여부': 'bell', 'CCTV설치여부': 'cctv'
     }
-    
     existing_cols = [c for c in target_cols.keys() if c in df.columns]
     df = df[existing_cols]
     df.rename(columns=target_cols, inplace=True)
@@ -244,7 +247,9 @@ def load_data(file):
 
     return df
 
-# 5. 사이드바 UI
+# --------------------------------------------------------------------------
+# 사이드바 UI
+# --------------------------------------------------------------------------
 with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
@@ -269,9 +274,11 @@ with st.sidebar:
         else:
             st.caption("No feedback yet.")
 
-# 6. 메인 화면
+# --------------------------------------------------------------------------
+# 메인 로직
+# --------------------------------------------------------------------------
 st.title(txt['title'])
-st.caption(txt['desc']) # 부가 설명은 caption으로 깔끔하게
+st.caption(txt['desc'])
 
 df_toilet = None
 if uploaded_file: df_toilet = load_data(uploaded_file)
@@ -282,7 +289,7 @@ else:
 df_subway, df_store = get_sample_extra_data()
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_design_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_secrets_v1", timeout=10)
     
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
@@ -305,7 +312,7 @@ if user_address and df_toilet is not None:
             df_store['dist'] = df_store.apply(calculate_distance, axis=1)
             nearby_store = df_store[df_store['dist'] <= search_radius]
             
-            # [디자인] 카드 섹션 느낌으로 나누기
+            # 상단 통계
             st.markdown("---")
             m_col1, m_col2, m_col3 = st.columns(3)
             with m_col1: st.metric(label="TOILET", value=f"{len(nearby_toilet)}")
@@ -328,7 +335,7 @@ if user_address and df_toilet is not None:
                         selected_name = st.selectbox(txt['select_label'], nearby_filtered['name'].tolist())
                         row = nearby_filtered[nearby_filtered['name'] == selected_name].iloc[0]
                         
-                        # [디자인] 상세 정보 박스 UI 개선
+                        # 상세 정보 카드
                         st.markdown(f"""
                         <div style="background-color:#F8F9FA; padding:20px; border-radius:10px; border:1px solid #E0E0E0;">
                             <h4 style="color:#2962FF; margin-top:0;">{row['name']}</h4>
@@ -350,6 +357,28 @@ if user_address and df_toilet is not None:
                             st.write(f"- 기저귀교환대: {row['diaper']}")
                             st.write(f"- 안전시설: 비상벨({row['bell']}), CCTV({row['cctv']})")
                             st.write(f"- 남녀공용: {row['unisex']}")
+
+                        # -------------------------------------------
+                        # 📺 유튜브 영상 영역 (API Key로 작동)
+                        # -------------------------------------------
+                        st.markdown("---")
+                        st.subheader(txt['youtube_title'])
+                        
+                        if not YOUTUBE_API_KEY:
+                            st.warning(txt['youtube_need_key'])
+                        else:
+                            with st.spinner("Searching YouTube..."):
+                                # 검색어: "현재위치(예: 명동) 맛집 핫플"
+                                # 화장실 이름보다는 '동네 분위기'를 보여주는 게 더 유용함
+                                yt_query = f"{user_address} 맛집 핫플"
+                                video_url = search_youtube(yt_query)
+                                
+                                if video_url:
+                                    st.video(video_url)
+                                    st.caption(f"👀 '{yt_query}' 검색 결과")
+                                else:
+                                    st.caption("관련 영상을 찾을 수 없습니다.")
+
                     else:
                         st.warning(txt['warn_no_result'])
                         row = None
@@ -358,7 +387,6 @@ if user_address and df_toilet is not None:
                     row = None
 
             with col2:
-                # [디자인] 지도 타일을 CartoDB Positron으로 유지 (회색톤이라 이 디자인과 찰떡임)
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
                 folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
                 marker_cluster = MarkerCluster().add_to(m)
@@ -386,15 +414,12 @@ if user_address and df_toilet is not None:
         if "503" in str(e): st.error("⚠️ Server busy. Try again.")
         else: st.error(f"Error: {e}")
 
-# 7. 피드백 섹션
 st.markdown("---")
 st.subheader(txt['fb_title'])
-
 with st.form("feedback_form"):
     fb_type = st.selectbox(txt['fb_type'], txt['fb_types'])
     fb_msg = st.text_area(txt['fb_msg'])
     submitted = st.form_submit_button(txt['fb_btn'])
-    
     if submitted:
         save_feedback(fb_type, fb_msg)
         st.success(txt['fb_success'])
