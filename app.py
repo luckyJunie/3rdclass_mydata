@@ -5,21 +5,19 @@ from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 
-# 1. 페이지 설정 (가장 먼저 와야 함)
+# 1. 페이지 설정
 st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기 / Seoul Toilet Finder")
 
-# ==========================================
-# 2. 다국어 사전 (Dictionary) 설정
-# ==========================================
-# 화면에 표시될 모든 텍스트를 이곳에 정리합니다.
+# 2. 다국어 설정 (한국어/영어)
 lang_dict = {
     'ko': {
         'title': "🚽 서울시 내 주변 공중화장실 찾기",
         'desc': "본인의 위치(주소/건물명)를 입력하면 가장 가까운 공중화장실을 찾아줍니다.",
         'sidebar_header': "🔍 검색 설정",
-        'input_label': "현재 위치 입력 (예: 강남역, 세종대로 175)",
+        'input_label': "현재 위치 입력 (예: 강남역, 시청)",
         'radius_label': "검색 반경 (km)",
-        'error_csv': "CSV 파일이 없습니다.",
+        'upload_label': "CSV 파일 업로드 (파일이 없을 경우)",
+        'error_file': "데이터 파일(CSV)이 필요합니다. 깃허브에 파일을 올리거나, 이곳에 직접 드래그하세요.",
         'success_loc': "📍 검색된 위치: {}",
         'result_header': "총 {}개의 화장실 발견",
         'radio_label': "지도에서 보고 싶은 화장실을 선택하세요:",
@@ -36,9 +34,10 @@ lang_dict = {
         'title': "🚽 Public Restrooms in Seoul",
         'desc': "Enter your location to find the nearest public restrooms.",
         'sidebar_header': "🔍 Search Settings",
-        'input_label': "Enter Location (e.g., Gangnam Station, City Hall)",
+        'input_label': "Enter Location (e.g., Gangnam Station)",
         'radius_label': "Search Radius (km)",
-        'error_csv': "CSV file not found.",
+        'upload_label': "Upload CSV File (If missing)",
+        'error_file': "Data file (CSV) is required. Please upload it here.",
         'success_loc': "📍 Location found: {}",
         'result_header': "Found {} restrooms",
         'radio_label': "Select a restroom to view on map:",
@@ -53,55 +52,48 @@ lang_dict = {
     }
 }
 
-# ==========================================
-# 3. 언어 상태 관리 (Session State)
-# ==========================================
+# 3. 언어 상태 관리
 if 'lang' not in st.session_state:
-    st.session_state.lang = 'ko'  # 기본값 한국어
+    st.session_state.lang = 'ko'
 
 def toggle_language():
-    if st.session_state.lang == 'ko':
-        st.session_state.lang = 'en'
-    else:
-        st.session_state.lang = 'ko'
+    st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 
-# 현재 언어에 맞는 텍스트 가져오기
 txt = lang_dict[st.session_state.lang]
 
-# ==========================================
-# 4. 사이드바 (언어 변경 버튼 & 입력창)
-# ==========================================
+# 4. 사이드바 설정
 with st.sidebar:
-    # 언어 변경 버튼 (맨 위에 배치)
     st.button(txt['btn_label'], on_click=toggle_language)
-    st.divider() # 구분선
-    
+    st.divider()
     st.header(txt['sidebar_header'])
-    # 영어일 때 기본값을 'Seoul City Hall'로 변경하면 더 자연스러움
+    
+    # [수정된 부분] 파일 업로더 추가! (파일이 없을 때를 대비)
+    uploaded_file = st.file_uploader(txt['upload_label'], type=['csv'])
+    
     default_value = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_value)
     search_radius = st.slider(txt['radius_label'], 0.5, 5.0, 1.0)
 
-# ==========================================
 # 5. 메인 로직
-# ==========================================
 st.title(txt['title'])
 st.markdown(txt['desc'])
 
+# 데이터 로드 함수 (업그레이드: 업로드된 파일 우선 사용)
 @st.cache_data
-def load_data():
-    file_path = '서울시 공중화장실 위치정보.csv'
+def load_data(file):
     try:
-        df = pd.read_csv(file_path, encoding='utf-8')
+        df = pd.read_csv(file, encoding='utf-8')
     except UnicodeDecodeError:
         try:
-            df = pd.read_csv(file_path, encoding='cp949')
+            df = pd.read_csv(file, encoding='cp949')
         except UnicodeDecodeError:
-            df = pd.read_csv(file_path, encoding='euc-kr')
+            df = pd.read_csv(file, encoding='euc-kr')
 
+    # 필요한 컬럼만 선택 및 이름 변경
     df = df[['건물명', '도로명주소', '개방시간', 'x 좌표', 'y 좌표', '유형', '비고']]
     df.rename(columns={'x 좌표': 'lon', 'y 좌표': 'lat'}, inplace=True)
 
+    # 전처리
     cols_to_clean = ['건물명', '도로명주소', '개방시간', '유형', '비고']
     for col in cols_to_clean:
         df[col] = df[col].astype(str).str.replace('|', '', regex=False)
@@ -110,19 +102,29 @@ def load_data():
     df = df[(df['lon'] > 126.7) & (df['lon'] < 127.3)]
     return df
 
-try:
-    df = load_data()
-except FileNotFoundError:
-    st.error(txt['error_csv'])
-    st.stop()
+# 파일 읽기 로직 (자동 파일 찾기 -> 실패하면 업로드 파일 사용)
+df = None
+default_path = '서울시 공중화장실 위치정보.csv'
 
-if user_address:
-    geolocator = Nominatim(user_agent="seoul_toilet_finder_v2") # user_agent 이름 변경 권장
+# 1. 사용자가 직접 올린 파일이 있으면 그걸 씀
+if uploaded_file is not None:
+    df = load_data(uploaded_file)
+else:
+    # 2. 없으면 기본 경로에서 찾아봄
     try:
-        # 영어 검색일 경우 "Seoul"을 앞에 붙여주면 정확도 향상
+        df = load_data(default_path)
+    except FileNotFoundError:
+        # 3. 둘 다 없으면 경고 메시지 띄움
+        st.warning(txt['error_file'])
+        st.stop() # 여기서 멈춤
+
+# --- 이하 로직은 동일 ---
+if user_address and df is not None:
+    geolocator = Nominatim(user_agent="seoul_toilet_finder_v3")
+    try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
-        
         location = geolocator.geocode(search_query)
+        
         if location:
             user_lat = location.latitude
             user_lon = location.longitude
@@ -144,7 +146,6 @@ if user_address:
                     )
                     selected_row = nearby_toilets[nearby_toilets['건물명'] == selected_toilet_name].iloc[0]
                     
-                    # 정보 표시 (라벨 다국어 적용)
                     st.info(
                         f"**{txt['info_name']}:** {selected_row['건물명']}\n\n"
                         f"{txt['info_addr']}: {selected_row['도로명주소']}\n\n"
