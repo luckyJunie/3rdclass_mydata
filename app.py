@@ -77,7 +77,6 @@ with st.sidebar:
 # 5. 데이터 로드 함수
 @st.cache_data
 def load_data(file):
-    # 인코딩 자동 감지 시도 (utf-8 -> cp949 -> euc-kr)
     try:
         df = pd.read_csv(file, encoding='utf-8')
     except UnicodeDecodeError:
@@ -87,7 +86,6 @@ def load_data(file):
             df = pd.read_csv(file, encoding='euc-kr')
 
     # 필요한 컬럼만 선택 및 이름 변경
-    # (데이터 파일의 컬럼명이 정확해야 합니다)
     df = df[['건물명', '도로명주소', '개방시간', 'x 좌표', 'y 좌표', '유형', '비고']]
     df.rename(columns={'x 좌표': 'lon', 'y 좌표': 'lat'}, inplace=True)
 
@@ -107,17 +105,14 @@ st.markdown(txt['desc'])
 
 # 파일 읽기 시도
 df = None
-default_path = 'seoul_toilet.csv' # 사용자가 변경한 파일명
+default_path = 'seoul_toilet.csv'
 
-# 1순위: 사용자가 방금 업로드한 파일이 있으면 그걸 씀
 if uploaded_file is not None:
     df = load_data(uploaded_file)
 else:
-    # 2순위: 깃허브에 있는 파일 읽기 시도
     try:
         df = load_data(default_path)
     except FileNotFoundError:
-        # 파일이 없으면 경고 메시지 출력 후 중단
         st.warning(txt['error_file'])
         st.stop()
     except Exception as e:
@@ -126,10 +121,11 @@ else:
 
 # 7. 위치 검색 및 지도 표시
 if user_address and df is not None:
-    geolocator = Nominatim(user_agent="seoul_toilet_finder_final")
+    # [수정된 부분] user_agent를 아주 독특하게 변경하고, timeout을 추가했습니다.
+    # 이렇게 하면 서버가 '새로운 사용자구나' 하고 받아줄 확률이 높아집니다.
+    geolocator = Nominatim(user_agent="korea_toilet_map_project_v1_unique", timeout=10)
     
     try:
-        # 영어 검색일 경우 "Seoul"을 앞에 붙여주면 정확도 향상
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         
         location = geolocator.geocode(search_query)
@@ -139,29 +135,23 @@ if user_address and df is not None:
             user_lon = location.longitude
             st.success(txt['success_loc'].format(location.address))
             
-            # 거리 계산
             def calculate_distance(row):
                 return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
 
             df['거리(km)'] = df.apply(calculate_distance, axis=1)
-            
-            # 반경 내 화장실 필터링 및 정렬
             nearby_toilets = df[df['거리(km)'] <= search_radius].sort_values(by='거리(km)')
             
-            # 화면 분할 (왼쪽: 목록 / 오른쪽: 지도)
             col1, col2 = st.columns([1, 2])
             
             with col1:
                 st.subheader(txt['result_header'].format(len(nearby_toilets)))
                 if not nearby_toilets.empty:
-                    # 라디오 버튼으로 화장실 선택
                     selected_toilet_name = st.radio(
                         txt['radio_label'],
                         nearby_toilets['건물명'].tolist()
                     )
                     selected_row = nearby_toilets[nearby_toilets['건물명'] == selected_toilet_name].iloc[0]
                     
-                    # 선택된 화장실 정보 보여주기
                     st.info(
                         f"**{txt['info_name']}:** {selected_row['건물명']}\n\n"
                         f"{txt['info_addr']}: {selected_row['도로명주소']}\n\n"
@@ -173,31 +163,29 @@ if user_address and df is not None:
                     selected_row = None
 
             with col2:
-                # 지도 생성
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15)
-                
-                # 내 위치 마커 (빨강)
                 folium.Marker(
                     [user_lat, user_lon], 
                     popup=txt['popup_current'], 
                     icon=folium.Icon(color='red', icon='user')
                 ).add_to(m)
                 
-                # 화장실 마커들 (선택된건 초록, 나머진 파랑)
                 for idx, row in nearby_toilets.iterrows():
                     icon_color = 'green' if selected_row is not None and row['건물명'] == selected_row['건물명'] else 'blue'
-                    
                     folium.Marker(
                         [row['lat'], row['lon']], 
-                        popup=f"<b>{row['건물명']}</b><br>{row[' 개방시간']}", 
+                        popup=f"<b>{row['건물명']}</b><br>{row['개방시간']}", 
                         tooltip=row['건물명'], 
                         icon=folium.Icon(color=icon_color, icon='info-sign')
                     ).add_to(m)
                 
-                # 지도 출력
                 st_folium(m, width="100%", height=500)
         else:
             st.error(txt['error_no_loc'])
             
     except Exception as e:
-        st.error(f"An error occurred: {e}")
+        # 503 에러가 또 나면 조금 더 친절하게 알려줍니다.
+        if "503" in str(e):
+            st.error("⚠️ 지도 서비스가 일시적으로 바쁩니다. 5초 뒤에 다시 시도해보거나, 주소를 조금 더 정확하게 입력해주세요.")
+        else:
+            st.error(f"An error occurred: {e}")
