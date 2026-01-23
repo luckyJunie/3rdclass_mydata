@@ -8,14 +8,17 @@ from geopy.distance import geodesic
 import os
 from datetime import datetime
 import requests
+import openai # [필수] requirements.txt 덕분에 이제 작동함!
 
 st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
 # 🔒 [보안] API Key 가져오기 (Secrets)
 try:
     YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"] # GPT 키 가져오기
 except:
     YOUTUBE_API_KEY = ""
+    OPENAI_API_KEY = ""
 
 # 🎨 [CSS 스타일]
 st.markdown("""
@@ -30,6 +33,15 @@ st.markdown("""
     div.stButton > button { background-color: #2962FF; color: white; border-radius: 8px; border: none; }
     div.stButton > button:hover { background-color: #0039CB; color: white; }
     .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
+    
+    /* AI 채팅 박스 스타일 */
+    .ai-box {
+        background-color: #E8F0FE; /* 아주 연한 블루 */
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #D2E3FC;
+        margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,7 +79,13 @@ lang_dict = {
         'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙",
         'youtube_title': "📺 주변 분위기 (Vlog)",
         'youtube_error': "영상을 불러올 수 없습니다.",
-        'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요."
+        'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요.",
+        'ai_title': "🤖 AI 화장실 소믈리에 (Beta)",
+        'ai_desc': "원하는 조건을 말하면 AI가 최고의 화장실을 추천해줍니다.",
+        'ai_placeholder': "예: 아이랑 갈 수 있는 깨끗하고 안전한 화장실 추천해줘",
+        'ai_btn': "AI에게 추천받기 ✨",
+        'ai_thinking': "AI가 데이터를 분석 중입니다...",
+        'ai_need_key': "⚠️ 설정(Secrets)에 OpenAI API Key가 필요합니다."
     },
     'en': {
         'title': "SEOUL TOILET FINDER",
@@ -102,7 +120,13 @@ lang_dict = {
         'fb_success': "Thank you! Feedback sent. 💙",
         'youtube_title': "📺 Nearby Vibe (Vlog)",
         'youtube_error': "Cannot load video.",
-        'youtube_need_key': "⚠️ Please set YouTube API Key in Secrets."
+        'youtube_need_key': "⚠️ Please set YouTube API Key in Secrets.",
+        'ai_title': "🤖 AI Toilet Sommelier (Beta)",
+        'ai_desc': "Ask AI for the best restroom recommendation.",
+        'ai_placeholder': "e.g., Where is the cleanest toilet with a diaper station?",
+        'ai_btn': "Ask AI ✨",
+        'ai_thinking': "AI is analyzing data...",
+        'ai_need_key': "⚠️ OpenAI API Key is missing in Secrets."
     }
 }
 
@@ -110,17 +134,44 @@ if 'lang' not in st.session_state: st.session_state.lang = 'ko'
 def toggle_language(): st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 txt = lang_dict[st.session_state.lang]
 
+# 🧠 [NEW] GPT 호출 함수 (화장실 추천 로직)
+def ask_gpt_recommendation(df_nearby, user_query):
+    if not OPENAI_API_KEY: return "API Key가 설정되지 않았습니다."
+    
+    # 데이터프레임을 텍스트로 변환 (상위 15개만)
+    df_slim = df_nearby[['name', 'dist', 'unisex', 'diaper', 'bell', 'cctv']].head(15)
+    data_context = df_slim.to_markdown(index=False)
+    
+    system_prompt = f"""
+    당신은 '화장실 소믈리에'입니다. 
+    아래는 현재 사용자 위치 주변의 화장실 데이터입니다:
+    {data_context}
+    
+    사용자의 질문: "{user_query}"
+    
+    데이터를 분석해서 사용자의 요구사항(예: 기저귀, 안전, 거리 등)에 가장 잘 맞는 화장실 1~2곳을 추천해주세요.
+    추천 이유를 친절하게 설명하고, 거리가 얼마나 되는지도 언급해주세요.
+    데이터에 없는 내용은 지어내지 말고 "정보가 없다"고 하세요.
+    """
+    
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": system_prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"오류가 발생했습니다: {e}"
+
 # 유튜브 검색 함수
 def search_youtube(query):
     if not YOUTUBE_API_KEY: return []
     search_url = "https://www.googleapis.com/youtube/v3/search"
-    params = {
-        'part': 'snippet',
-        'q': f"{query} 맛집 핫플 브이로그", 
-        'key': YOUTUBE_API_KEY,
-        'maxResults': 3,
-        'type': 'video'
-    }
+    params = {'part': 'snippet', 'q': f"{query} 맛집 핫플 브이로그", 'key': YOUTUBE_API_KEY, 'maxResults': 3, 'type': 'video'}
     video_urls = []
     try:
         response = requests.get(search_url, params=params)
@@ -130,8 +181,7 @@ def search_youtube(query):
                 for item in data['items']:
                     video_id = item['id']['videoId']
                     video_urls.append(f"https://www.youtube.com/watch?v={video_id}")
-    except:
-        pass
+    except: pass
     return video_urls
 
 def save_feedback(fb_type, message):
@@ -193,12 +243,10 @@ else:
     except: st.warning(txt['error_file']); st.stop()
 
 df_subway, df_store = get_sample_extra_data()
-
-# 선택된 화장실 정보를 담을 변수 초기화
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_fullwidth_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_ai_v2", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -223,9 +271,31 @@ if user_address and df_toilet is not None:
                  else: st.metric(label="NEAREST", value="-")
             st.markdown("---")
 
+            # =================================================================
+            # 🤖 [NEW] AI 화장실 소믈리에 섹션 (여기 코드가 있어야 보입니다!)
+            # =================================================================
+            if not nearby_toilet.empty:
+                st.markdown(f"""
+                <div class="ai-box">
+                    <h3 style="margin-top:0;">{txt['ai_title']}</h3>
+                    <p style="color:#555;">{txt['ai_desc']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.form("ai_form"):
+                    user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
+                    ai_submitted = st.form_submit_button(txt['ai_btn'])
+                    
+                    if ai_submitted and user_question:
+                        if not OPENAI_API_KEY:
+                            st.warning(txt['ai_need_key'])
+                        else:
+                            with st.spinner(txt['ai_thinking']):
+                                ai_answer = ask_gpt_recommendation(nearby_toilet, user_question)
+                                st.info(ai_answer)
+                st.markdown("---")
+
             col1, col2 = st.columns([1, 1.5])
-            
-            # --- 왼쪽 컬럼 (목록 & 상세정보) ---
             with col1:
                 if not nearby_toilet.empty:
                     search_keyword = st.text_input("🔍 " + txt['search_placeholder'])
@@ -259,7 +329,6 @@ if user_address and df_toilet is not None:
                     else: st.warning(txt['warn_no_result']); row = None
                 else: st.warning(txt['warn_no_result']); row = None
 
-            # --- 오른쪽 컬럼 (지도) ---
             with col2:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
                 folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
@@ -274,29 +343,22 @@ if user_address and df_toilet is not None:
                     for idx, r in nearby_store.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
                 st_folium(m, width="100%", height=500)
             
-            # =================================================================
-            # 📺 [NEW] 유튜브 영상 섹션 (컬럼 밖으로 꺼내서 넓게 배치)
-            # =================================================================
+            # 📺 유튜브 영상 영역
             if row is not None:
                 st.markdown("---")
                 st.subheader(txt['youtube_title'])
-                
                 if not YOUTUBE_API_KEY:
                     st.warning(txt['youtube_need_key'])
                 else:
                     with st.spinner("Finding Vlogs..."):
                         yt_query = f"{user_address} 맛집 핫플"
                         video_urls = search_youtube(yt_query)
-                        
                         if video_urls:
-                            # 넓어진 공간을 3등분해서 꽉 채우기
                             cols = st.columns(len(video_urls))
                             for idx, url in enumerate(video_urls):
-                                with cols[idx]:
-                                    st.video(url)
+                                with cols[idx]: st.video(url)
                             st.caption(f"👀 '{yt_query}' 검색 결과")
-                        else:
-                            st.caption("관련 영상을 찾을 수 없습니다.")
+                        else: st.caption("관련 영상을 찾을 수 없습니다.")
 
         else: st.error(txt['error_no_loc'])
     except Exception as e:
