@@ -11,7 +11,7 @@ st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 # 1. 다국어 설정
 lang_dict = {
     'ko': {
-        'title': "🚽 서울시 공중화장실 찾기 (Full Map)",
+        'title': "🚽 서울시 공중화장실 찾기",
         'desc': "화장실뿐만 아니라 지하철역과 편의점(안심지킴이)도 함께 찾아보세요.",
         'sidebar_header': "🔍 검색 옵션", # 변경
         'input_label': "현재 위치 입력 (예: 강남역, 시청)",
