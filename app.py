@@ -110,16 +110,15 @@ if 'lang' not in st.session_state: st.session_state.lang = 'ko'
 def toggle_language(): st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 txt = lang_dict[st.session_state.lang]
 
-# 🔄 [수정됨] 유튜브 검색 함수 (3개를 리스트로 반환)
+# 유튜브 검색 함수
 def search_youtube(query):
-    if not YOUTUBE_API_KEY: return [] # 키 없으면 빈 리스트 반환
-    
+    if not YOUTUBE_API_KEY: return []
     search_url = "https://www.googleapis.com/youtube/v3/search"
     params = {
         'part': 'snippet',
         'q': f"{query} 맛집 핫플 브이로그", 
         'key': YOUTUBE_API_KEY,
-        'maxResults': 3, # 🚀 영상 3개 요청
+        'maxResults': 3,
         'type': 'video'
     }
     video_urls = []
@@ -133,7 +132,7 @@ def search_youtube(query):
                     video_urls.append(f"https://www.youtube.com/watch?v={video_id}")
     except:
         pass
-    return video_urls # URL들이 담긴 리스트 반환
+    return video_urls
 
 def save_feedback(fb_type, message):
     file_name = 'user_feedback.csv'
@@ -195,8 +194,11 @@ else:
 
 df_subway, df_store = get_sample_extra_data()
 
+# 선택된 화장실 정보를 담을 변수 초기화
+row = None
+
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_vlog_v2", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_fullwidth_v1", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -222,6 +224,8 @@ if user_address and df_toilet is not None:
             st.markdown("---")
 
             col1, col2 = st.columns([1, 1.5])
+            
+            # --- 왼쪽 컬럼 (목록 & 상세정보) ---
             with col1:
                 if not nearby_toilet.empty:
                     search_keyword = st.text_input("🔍 " + txt['search_placeholder'])
@@ -252,33 +256,10 @@ if user_address and df_toilet is not None:
                             st.write(f"- 안전시설: 비상벨({row['bell']}), CCTV({row['cctv']})")
                             st.write(f"- 남녀공용: {row['unisex']}")
 
-                        # -------------------------------------------
-                        # 📺 유튜브 영상 영역 (3개 분할)
-                        # -------------------------------------------
-                        st.markdown("---")
-                        st.subheader(txt['youtube_title'])
-                        
-                        if not YOUTUBE_API_KEY:
-                            st.warning(txt['youtube_need_key'])
-                        else:
-                            with st.spinner("Finding Vlogs..."):
-                                yt_query = f"{user_address} 맛집 핫플"
-                                # [변경] 3개의 URL 리스트를 받아옴
-                                video_urls = search_youtube(yt_query)
-                                
-                                if video_urls:
-                                    # [변경] 받아온 개수만큼 컬럼을 만듦 (최대 3개)
-                                    cols = st.columns(len(video_urls))
-                                    for idx, url in enumerate(video_urls):
-                                        with cols[idx]:
-                                            st.video(url)
-                                    st.caption(f"👀 '{yt_query}' 검색 결과")
-                                else:
-                                    st.caption("관련 영상을 찾을 수 없습니다.")
-
                     else: st.warning(txt['warn_no_result']); row = None
                 else: st.warning(txt['warn_no_result']); row = None
 
+            # --- 오른쪽 컬럼 (지도) ---
             with col2:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
                 folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
@@ -292,6 +273,31 @@ if user_address and df_toilet is not None:
                 if show_store:
                     for idx, r in nearby_store.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
                 st_folium(m, width="100%", height=500)
+            
+            # =================================================================
+            # 📺 [NEW] 유튜브 영상 섹션 (컬럼 밖으로 꺼내서 넓게 배치)
+            # =================================================================
+            if row is not None:
+                st.markdown("---")
+                st.subheader(txt['youtube_title'])
+                
+                if not YOUTUBE_API_KEY:
+                    st.warning(txt['youtube_need_key'])
+                else:
+                    with st.spinner("Finding Vlogs..."):
+                        yt_query = f"{user_address} 맛집 핫플"
+                        video_urls = search_youtube(yt_query)
+                        
+                        if video_urls:
+                            # 넓어진 공간을 3등분해서 꽉 채우기
+                            cols = st.columns(len(video_urls))
+                            for idx, url in enumerate(video_urls):
+                                with cols[idx]:
+                                    st.video(url)
+                            st.caption(f"👀 '{yt_query}' 검색 결과")
+                        else:
+                            st.caption("관련 영상을 찾을 수 없습니다.")
+
         else: st.error(txt['error_no_loc'])
     except Exception as e:
         if "503" in str(e): st.error("⚠️ Server busy. Try again.")
