@@ -321,12 +321,12 @@ if user_address and df_toilet is not None:
 
             with col2:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
-                folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
+                folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='blue', icon='user')).add_to(m)
                 marker_cluster = MarkerCluster().add_to(m)
                 if show_toilet:
                     for idx, r in nearby_toilet.iterrows():
-                        if row is not None and r['name'] == row['name']: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='star')).add_to(m)
-                        else: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='info-sign')).add_to(marker_cluster)
+                        if row is not None and r['name'] == row['name']: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='blue', icon='star')).add_to(m)
+                        else: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster)
                 if show_subway:
                     for idx, r in nearby_subway.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🚇 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='orange', icon='arrow-down', prefix='fa')).add_to(m)
                 if show_store:
