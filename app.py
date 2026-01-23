@@ -11,71 +11,27 @@ import requests
 
 st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
-# =========================================================================
-# 🔒 [보안] API Key 가져오기 (Secrets 기능 사용)
-# =========================================================================
-# 코드에 키를 직접 적지 않고, 금고(st.secrets)에서 꺼내옵니다.
+# 🔒 [보안] API Key 가져오기 (Secrets)
 try:
     YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
 except:
-    # 아직 Secrets 설정을 안 했을 경우를 대비해 에러 방지
     YOUTUBE_API_KEY = ""
 
-# --------------------------------------------------------------------------
-# 🎨 [CSS 스타일] 디자인 (Pretendard 폰트 + 모던 UI)
-# --------------------------------------------------------------------------
+# 🎨 [CSS 스타일]
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
-    
-    html, body, [class*="css"] {
-        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
-    }
+    html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #FFFFFF; }
-    
-    section[data-testid="stSidebar"] {
-        background-color: #F8F9FA;
-        border-right: 1px solid #EAEAEA;
-    }
-    
+    section[data-testid="stSidebar"] { background-color: #F8F9FA; border-right: 1px solid #EAEAEA; }
     h1 { color: #111111; font-weight: 800; letter-spacing: -1.5px; }
     h2, h3 { color: #333333; font-weight: 700; letter-spacing: -1px; }
-    
-    div[data-testid="stMetricValue"] {
-        color: #2962FF; /* 포인트 블루 */
-        font-weight: 800;
-        font-size: 36px !important;
-    }
-    
-    div.stButton > button {
-        background-color: #2962FF;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-    }
-    div.stButton > button:hover {
-        background-color: #0039CB;
-        color: white;
-    }
-    
-    .stTextInput > div > div > input, 
-    .stSelectbox > div > div > div,
-    .stTextArea > div > div > textarea {
-        background-color: #F8F9FA;
-        border: 1px solid #E0E0E0;
-        border-radius: 8px;
-    }
-    
-    .stAlert { border-radius: 8px; border: none; }
+    div[data-testid="stMetricValue"] { color: #2962FF; font-weight: 800; font-size: 36px !important; }
+    div.stButton > button { background-color: #2962FF; color: white; border-radius: 8px; border: none; }
+    div.stButton > button:hover { background-color: #0039CB; color: white; }
+    .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
 </style>
 """, unsafe_allow_html=True)
-
-# --------------------------------------------------------------------------
-# 다국어 설정 및 함수들
-# --------------------------------------------------------------------------
 
 lang_dict = {
     'ko': {
@@ -150,133 +106,84 @@ lang_dict = {
     }
 }
 
-if 'lang' not in st.session_state:
-    st.session_state.lang = 'ko'
-
-def toggle_language():
-    st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
-
+if 'lang' not in st.session_state: st.session_state.lang = 'ko'
+def toggle_language(): st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 txt = lang_dict[st.session_state.lang]
 
-# 유튜브 검색 함수 (키 확인 로직 포함)
+# 🔄 [수정됨] 유튜브 검색 함수 (3개를 리스트로 반환)
 def search_youtube(query):
-    # 키가 비어있으면 검색하지 않음
-    if not YOUTUBE_API_KEY:
-        return None
-        
+    if not YOUTUBE_API_KEY: return [] # 키 없으면 빈 리스트 반환
+    
     search_url = "https://www.googleapis.com/youtube/v3/search"
     params = {
         'part': 'snippet',
-        'q': f"{query} 맛집 브이로그", # 검색어 최적화
+        'q': f"{query} 맛집 핫플 브이로그", 
         'key': YOUTUBE_API_KEY,
-        'maxResults': 1,
+        'maxResults': 3, # 🚀 영상 3개 요청
         'type': 'video'
     }
+    video_urls = []
     try:
         response = requests.get(search_url, params=params)
         if response.status_code == 200:
             data = response.json()
-            if 'items' in data and len(data['items']) > 0:
-                video_id = data['items'][0]['id']['videoId']
-                return f"https://www.youtube.com/watch?v={video_id}"
+            if 'items' in data:
+                for item in data['items']:
+                    video_id = item['id']['videoId']
+                    video_urls.append(f"https://www.youtube.com/watch?v={video_id}")
     except:
         pass
-    return None
+    return video_urls # URL들이 담긴 리스트 반환
 
 def save_feedback(fb_type, message):
     file_name = 'user_feedback.csv'
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_data = pd.DataFrame([[timestamp, fb_type, message]], columns=['Time', 'Type', 'Message'])
-    
-    if not os.path.exists(file_name):
-        new_data.to_csv(file_name, index=False, encoding='utf-8-sig')
-    else:
-        new_data.to_csv(file_name, mode='a', header=False, index=False, encoding='utf-8-sig')
+    if not os.path.exists(file_name): new_data.to_csv(file_name, index=False, encoding='utf-8-sig')
+    else: new_data.to_csv(file_name, mode='a', header=False, index=False, encoding='utf-8-sig')
 
 def get_sample_extra_data():
-    subway_data = [
-        {'name': '시청역 1호선', 'lat': 37.5635, 'lon': 126.9754},
-        {'name': '시청역 2호선', 'lat': 37.5620, 'lon': 126.9750},
-        {'name': '을지로입구역', 'lat': 37.5660, 'lon': 126.9826},
-        {'name': '광화문역', 'lat': 37.5716, 'lon': 126.9768},
-        {'name': '종각역', 'lat': 37.5702, 'lon': 126.9831},
-        {'name': '명동역', 'lat': 37.5609, 'lon': 126.9863},
-        {'name': '강남역', 'lat': 37.4979, 'lon': 127.0276},
-        {'name': '홍대입구역', 'lat': 37.5575, 'lon': 126.9245}
-    ]
-    store_data = [
-        {'name': 'CU 시청광장점', 'lat': 37.5640, 'lon': 126.9770},
-        {'name': 'GS25 을지로점', 'lat': 37.5655, 'lon': 126.9810},
-        {'name': '세븐일레븐 무교점', 'lat': 37.5675, 'lon': 126.9790},
-        {'name': 'CU 강남대로점', 'lat': 37.4985, 'lon': 127.0280},
-        {'name': 'GS25 홍대파크', 'lat': 37.5580, 'lon': 126.9250}
-    ]
+    subway_data = [{'name': '시청역 1호선', 'lat': 37.5635, 'lon': 126.9754}, {'name': '시청역 2호선', 'lat': 37.5620, 'lon': 126.9750}, {'name': '을지로입구역', 'lat': 37.5660, 'lon': 126.9826}, {'name': '광화문역', 'lat': 37.5716, 'lon': 126.9768}, {'name': '종각역', 'lat': 37.5702, 'lon': 126.9831}, {'name': '명동역', 'lat': 37.5609, 'lon': 126.9863}, {'name': '강남역', 'lat': 37.4979, 'lon': 127.0276}, {'name': '홍대입구역', 'lat': 37.5575, 'lon': 126.9245}]
+    store_data = [{'name': 'CU 시청광장점', 'lat': 37.5640, 'lon': 126.9770}, {'name': 'GS25 을지로점', 'lat': 37.5655, 'lon': 126.9810}, {'name': '세븐일레븐 무교점', 'lat': 37.5675, 'lon': 126.9790}, {'name': 'CU 강남대로점', 'lat': 37.4985, 'lon': 127.0280}, {'name': 'GS25 홍대파크', 'lat': 37.5580, 'lon': 126.9250}]
     return pd.DataFrame(subway_data), pd.DataFrame(store_data)
 
 @st.cache_data
 def load_data(file):
-    try:
-        df = pd.read_csv(file, encoding='utf-8')
+    try: df = pd.read_csv(file, encoding='utf-8')
     except:
-        try:
-            df = pd.read_csv(file, encoding='cp949')
-        except:
-            df = pd.read_csv(file, encoding='euc-kr')
-
-    target_cols = {
-        '건물명': 'name', '도로명주소': 'addr', '개방시간': 'hours', 
-        'x 좌표': 'lon', 'y 좌표': 'lat',
-        '남녀공용화장실여부': 'unisex', '기저귀교환대장소': 'diaper', 
-        '비상벨설치여부': 'bell', 'CCTV설치여부': 'cctv'
-    }
+        try: df = pd.read_csv(file, encoding='cp949')
+        except: df = pd.read_csv(file, encoding='euc-kr')
+    target_cols = {'건물명': 'name', '도로명주소': 'addr', '개방시간': 'hours', 'x 좌표': 'lon', 'y 좌표': 'lat', '남녀공용화장실여부': 'unisex', '기저귀교환대장소': 'diaper', '비상벨설치여부': 'bell', 'CCTV설치여부': 'cctv'}
     existing_cols = [c for c in target_cols.keys() if c in df.columns]
     df = df[existing_cols]
     df.rename(columns=target_cols, inplace=True)
-    
     for col in ['unisex', 'diaper', 'bell', 'cctv']:
         if col not in df.columns: df[col] = '-'
         else: df[col] = df[col].fillna('정보없음')
-
     for col in df.columns:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace('|', '', regex=False)
-
+        if df[col].dtype == object: df[col] = df[col].astype(str).str.replace('|', '', regex=False)
     if 'lat' in df.columns and 'lon' in df.columns:
         df = df[(df['lat'] > 37.4) & (df['lat'] < 37.8)]
         df = df[(df['lon'] > 126.7) & (df['lon'] < 127.3)]
-
     return df
 
-# --------------------------------------------------------------------------
-# 사이드바 UI
-# --------------------------------------------------------------------------
 with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
     st.subheader(txt['sidebar_header'])
-    
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
-    
     st.divider()
-    
     uploaded_file = st.file_uploader(txt['upload_label'], type=['csv'])
     default_val = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_val)
     search_radius = st.slider(txt['radius_label'], 0.5, 5.0, 1.0)
-    
     st.divider()
     if st.checkbox("Admin Mode"):
-        if os.path.exists('user_feedback.csv'):
-            st.write("📥 Feedback List:")
-            st.dataframe(pd.read_csv('user_feedback.csv'))
-        else:
-            st.caption("No feedback yet.")
+        if os.path.exists('user_feedback.csv'): st.write("📥 Feedback List:"); st.dataframe(pd.read_csv('user_feedback.csv'))
+        else: st.caption("No feedback yet.")
 
-# --------------------------------------------------------------------------
-# 메인 로직
-# --------------------------------------------------------------------------
 st.title(txt['title'])
 st.caption(txt['desc'])
 
@@ -289,30 +196,22 @@ else:
 df_subway, df_store = get_sample_extra_data()
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_secrets_v1", timeout=10)
-    
+    geolocator = Nominatim(user_agent="korea_toilet_vlog_v2", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
-        
         if location:
-            user_lat = location.latitude
-            user_lon = location.longitude
+            user_lat, user_lon = location.latitude, location.longitude
             st.success(txt['success_loc'].format(location.address))
             
-            def calculate_distance(row):
-                return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
-
+            def calculate_distance(row): return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
             df_toilet['dist'] = df_toilet.apply(calculate_distance, axis=1)
             nearby_toilet = df_toilet[df_toilet['dist'] <= search_radius].sort_values(by='dist')
-            
             df_subway['dist'] = df_subway.apply(calculate_distance, axis=1)
             nearby_subway = df_subway[df_subway['dist'] <= search_radius]
-
             df_store['dist'] = df_store.apply(calculate_distance, axis=1)
             nearby_store = df_store[df_store['dist'] <= search_radius]
             
-            # 상단 통계
             st.markdown("---")
             m_col1, m_col2, m_col3 = st.columns(3)
             with m_col1: st.metric(label="TOILET", value=f"{len(nearby_toilet)}")
@@ -323,11 +222,9 @@ if user_address and df_toilet is not None:
             st.markdown("---")
 
             col1, col2 = st.columns([1, 1.5])
-            
             with col1:
                 if not nearby_toilet.empty:
                     search_keyword = st.text_input("🔍 " + txt['search_placeholder'])
-                    
                     if search_keyword: nearby_filtered = nearby_toilet[nearby_toilet['name'].str.contains(search_keyword)]
                     else: nearby_filtered = nearby_toilet
 
@@ -335,7 +232,6 @@ if user_address and df_toilet is not None:
                         selected_name = st.selectbox(txt['select_label'], nearby_filtered['name'].tolist())
                         row = nearby_filtered[nearby_filtered['name'] == selected_name].iloc[0]
                         
-                        # 상세 정보 카드
                         st.markdown(f"""
                         <div style="background-color:#F8F9FA; padding:20px; border-radius:10px; border:1px solid #E0E0E0;">
                             <h4 style="color:#2962FF; margin-top:0;">{row['name']}</h4>
@@ -349,9 +245,7 @@ if user_address and df_toilet is not None:
                         if row['bell'] == 'Y' or '설치' in str(row['bell']): safety_icons += "🚨 "
                         if row['cctv'] == 'Y' or '설치' in str(row['cctv']): safety_icons += "📷 "
                         if row['unisex'] == 'Y': safety_icons += "👫"
-                        
-                        if safety_icons: 
-                            st.info(f"**Facility:** {safety_icons}")
+                        if safety_icons: st.info(f"**Facility:** {safety_icons}")
                             
                         with st.expander(txt['detail_title']):
                             st.write(f"- 기저귀교환대: {row['diaper']}")
@@ -359,7 +253,7 @@ if user_address and df_toilet is not None:
                             st.write(f"- 남녀공용: {row['unisex']}")
 
                         # -------------------------------------------
-                        # 📺 유튜브 영상 영역 (API Key로 작동)
+                        # 📺 유튜브 영상 영역 (3개 분할)
                         # -------------------------------------------
                         st.markdown("---")
                         st.subheader(txt['youtube_title'])
@@ -367,49 +261,38 @@ if user_address and df_toilet is not None:
                         if not YOUTUBE_API_KEY:
                             st.warning(txt['youtube_need_key'])
                         else:
-                            with st.spinner("Searching YouTube..."):
-                                # 검색어: "현재위치(예: 명동) 맛집 핫플"
-                                # 화장실 이름보다는 '동네 분위기'를 보여주는 게 더 유용함
+                            with st.spinner("Finding Vlogs..."):
                                 yt_query = f"{user_address} 맛집 핫플"
-                                video_url = search_youtube(yt_query)
+                                # [변경] 3개의 URL 리스트를 받아옴
+                                video_urls = search_youtube(yt_query)
                                 
-                                if video_url:
-                                    st.video(video_url)
+                                if video_urls:
+                                    # [변경] 받아온 개수만큼 컬럼을 만듦 (최대 3개)
+                                    cols = st.columns(len(video_urls))
+                                    for idx, url in enumerate(video_urls):
+                                        with cols[idx]:
+                                            st.video(url)
                                     st.caption(f"👀 '{yt_query}' 검색 결과")
                                 else:
                                     st.caption("관련 영상을 찾을 수 없습니다.")
 
-                    else:
-                        st.warning(txt['warn_no_result'])
-                        row = None
-                else:
-                    st.warning(txt['warn_no_result'])
-                    row = None
+                    else: st.warning(txt['warn_no_result']); row = None
+                else: st.warning(txt['warn_no_result']); row = None
 
             with col2:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
                 folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
                 marker_cluster = MarkerCluster().add_to(m)
-                
                 if show_toilet:
                     for idx, r in nearby_toilet.iterrows():
-                        if row is not None and r['name'] == row['name']:
-                            folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='star')).add_to(m)
-                        else:
-                            folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='info-sign')).add_to(marker_cluster)
-
+                        if row is not None and r['name'] == row['name']: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='star')).add_to(m)
+                        else: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='info-sign')).add_to(marker_cluster)
                 if show_subway:
-                    for idx, r in nearby_subway.iterrows():
-                        folium.Marker([r['lat'], r['lon']], popup=f"<b>🚇 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='orange', icon='arrow-down', prefix='fa')).add_to(m)
-
+                    for idx, r in nearby_subway.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🚇 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='orange', icon='arrow-down', prefix='fa')).add_to(m)
                 if show_store:
-                    for idx, r in nearby_store.iterrows():
-                        folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
-                
+                    for idx, r in nearby_store.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
                 st_folium(m, width="100%", height=500)
-        else:
-            st.error(txt['error_no_loc'])
-            
+        else: st.error(txt['error_no_loc'])
     except Exception as e:
         if "503" in str(e): st.error("⚠️ Server busy. Try again.")
         else: st.error(f"Error: {e}")
