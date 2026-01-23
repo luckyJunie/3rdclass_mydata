@@ -331,3 +331,70 @@ if user_address and df_toilet is not None:
                         # [디자인] 상세 정보 박스 UI 개선
                         st.markdown(f"""
                         <div style="background-color:#F8F9FA; padding:20px; border-radius:10px; border:1px solid #E0E0E0;">
+                            <h4 style="color:#2962FF; margin-top:0;">{row['name']}</h4>
+                            <p style="margin-bottom:5px;"><b>📍 {txt['col_addr']}</b><br>{row['addr']}</p>
+                            <p style="margin-bottom:5px;"><b>⏰ {txt['col_time']}</b><br>{row['hours']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        safety_icons = ""
+                        if row['diaper'] != '-' and row['diaper'] != '정보없음': safety_icons += "👶 "
+                        if row['bell'] == 'Y' or '설치' in str(row['bell']): safety_icons += "🚨 "
+                        if row['cctv'] == 'Y' or '설치' in str(row['cctv']): safety_icons += "📷 "
+                        if row['unisex'] == 'Y': safety_icons += "👫"
+                        
+                        if safety_icons: 
+                            st.info(f"**Facility:** {safety_icons}")
+                            
+                        with st.expander(txt['detail_title']):
+                            st.write(f"- 기저귀교환대: {row['diaper']}")
+                            st.write(f"- 안전시설: 비상벨({row['bell']}), CCTV({row['cctv']})")
+                            st.write(f"- 남녀공용: {row['unisex']}")
+                    else:
+                        st.warning(txt['warn_no_result'])
+                        row = None
+                else:
+                    st.warning(txt['warn_no_result'])
+                    row = None
+
+            with col2:
+                # [디자인] 지도 타일을 CartoDB Positron으로 유지 (회색톤이라 이 디자인과 찰떡임)
+                m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
+                folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
+                marker_cluster = MarkerCluster().add_to(m)
+                
+                if show_toilet:
+                    for idx, r in nearby_toilet.iterrows():
+                        if row is not None and r['name'] == row['name']:
+                            folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='star')).add_to(m)
+                        else:
+                            folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='info-sign')).add_to(marker_cluster)
+
+                if show_subway:
+                    for idx, r in nearby_subway.iterrows():
+                        folium.Marker([r['lat'], r['lon']], popup=f"<b>🚇 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='orange', icon='arrow-down', prefix='fa')).add_to(m)
+
+                if show_store:
+                    for idx, r in nearby_store.iterrows():
+                        folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
+                
+                st_folium(m, width="100%", height=500)
+        else:
+            st.error(txt['error_no_loc'])
+            
+    except Exception as e:
+        if "503" in str(e): st.error("⚠️ Server busy. Try again.")
+        else: st.error(f"Error: {e}")
+
+# 7. 피드백 섹션
+st.markdown("---")
+st.subheader(txt['fb_title'])
+
+with st.form("feedback_form"):
+    fb_type = st.selectbox(txt['fb_type'], txt['fb_types'])
+    fb_msg = st.text_area(txt['fb_msg'])
+    submitted = st.form_submit_button(txt['fb_btn'])
+    
+    if submitted:
+        save_feedback(fb_type, fb_msg)
+        st.success(txt['fb_success'])
