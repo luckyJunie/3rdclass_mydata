@@ -1,5 +1,7 @@
 streamlit
 pandas
-geopy
 folium
 streamlit-folium
+geopy
+requests
+openai
