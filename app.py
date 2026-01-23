@@ -45,7 +45,7 @@ lang_dict = {
         'fb_success': "소중한 의견 감사합니다! 개발자에게 전달되었습니다. 💌"
     },
     'en': {
-        'title': "🚽 Seoul Public Toilet Finder (Final)",
+        'title': "🚽 Seoul Public Toilet Finder",
         'desc': "Find toilets, subway stations, and stores. We value your feedback!",
         'sidebar_header': "🔍 Search Options",
         'input_label': "Enter Location (e.g., Gangnam Station)",
