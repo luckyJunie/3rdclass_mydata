@@ -20,25 +20,72 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일]
+# 🎨 [CSS 스타일] - 블루 테마 & 강력한 타이틀 적용
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
+    
     html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #FFFFFF; }
-    section[data-testid="stSidebar"] { background-color: #F8F9FA; border-right: 1px solid #EAEAEA; }
-    h1 { color: #111111; font-weight: 800; letter-spacing: -1.5px; }
-    h2, h3 { color: #333333; font-weight: 700; letter-spacing: -1px; }
-    div[data-testid="stMetricValue"] { color: #2962FF; font-weight: 800; font-size: 36px !important; }
-    div.stButton > button { background-color: #2962FF; color: white; border-radius: 8px; border: none; }
-    div.stButton > button:hover { background-color: #0039CB; color: white; }
-    .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
     
-    .ai-box {
-        background-color: #E8F0FE;
-        padding: 20px;
+    /* 1. 사이드바 스타일 */
+    section[data-testid="stSidebar"] {
+        background-color: #F8F9FA;
+        border-right: 1px solid #EAEAEA;
+    }
+    
+    /* 2. 타이틀 스타일 (크고 개성있게!) */
+    .big-title {
+        color: #2962FF; /* 쨍한 블루 */
+        font-family: 'Pretendard', sans-serif;
+        font-size: 4rem !important; /* 엄청 크게 */
+        font-weight: 900; /* 가장 굵게 */
+        letter-spacing: -3px; /* 자간을 좁혀서 로고처럼 */
+        line-height: 1.1;
+        margin-bottom: 20px;
+        text-shadow: 4px 4px 0px rgba(41, 98, 255, 0.1); /* 입체감 */
+    }
+    
+    /* 3. 서브헤더 및 텍스트 강조 컬러 */
+    h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -1px; }
+    
+    /* 4. 숫자(Metric) 컬러 */
+    div[data-testid="stMetricValue"] {
+        color: #2962FF !important;
+        font-weight: 800;
+        font-size: 40px !important;
+    }
+    div[data-testid="stMetricLabel"] { color: #555555; }
+    
+    /* 5. 버튼 스타일 (블루) */
+    div.stButton > button {
+        background-color: #2962FF;
+        color: white;
         border-radius: 12px;
-        border: 1px solid #D2E3FC;
+        border: none;
+        padding: 0.5rem 1.2rem;
+        font-weight: 700;
+        transition: all 0.2s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #002ba1; /* 더 진한 네이비 블루 */
+        color: white;
+        transform: scale(1.02);
+    }
+    
+    /* 6. 입력창 테두리 포커스 색상 */
+    .stTextInput > div > div > input:focus, 
+    .stSelectbox > div > div > div:focus {
+        border-color: #2962FF !important;
+        box-shadow: 0 0 0 1px #2962FF !important;
+    }
+    
+    /* 7. AI 박스 스타일 */
+    .ai-box {
+        background-color: #E3F2FD; /* 블루 계열의 아주 연한 배경 */
+        padding: 25px;
+        border-radius: 16px;
+        border: 2px solid #BBDEFB;
         margin-bottom: 20px;
     }
 </style>
@@ -46,7 +93,6 @@ st.markdown("""
 
 lang_dict = {
     'ko': {
-        'title': "SEOUL TOILET FINDER",
         'desc': "서울시 공중화장실, 지하철, 편의점 위치 안내 서비스",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "현재 위치 (예: 강남역, 시청)",
@@ -75,7 +121,7 @@ lang_dict = {
         'fb_msg': "내용을 입력해주세요",
         'fb_btn': "의견 보내기",
         'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙",
-        'youtube_title': "📺 주변 분위기 (Vlog)",
+        'youtube_title': "📺 Nearby Vibe (Vlog)",
         'youtube_error': "영상을 불러올 수 없습니다.",
         'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요.",
         'ai_title': "🤖 AI 화장실 소믈리에 (Beta)",
@@ -86,7 +132,6 @@ lang_dict = {
         'ai_need_key': "⚠️ 설정(Secrets)에 OpenAI API Key가 필요합니다."
     },
     'en': {
-        'title': "SEOUL TOILET FINDER",
         'desc': "Find nearby public toilets, subway stations, and safe stores.",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "Enter Location (e.g., Gangnam Station)",
@@ -221,9 +266,6 @@ with st.sidebar:
     
     st.divider()
     
-    # 🧹 [수정] 파일 업로드 버튼 삭제됨! 깔끔!
-    # uploaded_file = st.file_uploader(txt['upload_label'], type=['csv']) 
-    
     default_val = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_val)
     search_radius = st.slider(txt['radius_label'], 0.5, 5.0, 1.0)
@@ -232,10 +274,10 @@ with st.sidebar:
         if os.path.exists('user_feedback.csv'): st.write("📥 Feedback List:"); st.dataframe(pd.read_csv('user_feedback.csv'))
         else: st.caption("No feedback yet.")
 
-st.title(txt['title'])
+# 🏆 [변경] 타이틀을 HTML로 직접 그려서 크고 파랗게 만듦!
+st.markdown('<h1 class="big-title">SEOUL<br>TOILET FINDER</h1>', unsafe_allow_html=True)
 st.caption(txt['desc'])
 
-# 🧹 [수정] 업로드 과정 없이 바로 기본 파일 로드
 try: 
     df_toilet = load_data('seoul_toilet.csv')
 except: 
@@ -246,7 +288,7 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_blue", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -273,7 +315,7 @@ if user_address and df_toilet is not None:
 
             # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
-                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0; color:#0039CB;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
                 with st.form("ai_form"):
                     user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
                     ai_submitted = st.form_submit_button(txt['ai_btn'])
