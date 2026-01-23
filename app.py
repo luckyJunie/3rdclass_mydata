@@ -10,7 +10,7 @@ from datetime import datetime
 import requests
 import openai
 
-st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
+st.set_page_config(layout="wide", page_title="SEOUL TOILET FINDER")
 
 # 🔒 [보안] API Key 가져오기
 try:
@@ -20,25 +20,85 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일]
+# 🎨 [CSS 스타일] - 완벽한 올 블루(All Blue) 테마 적용
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
+    
     html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #FFFFFF; }
-    section[data-testid="stSidebar"] { background-color: #F8F9FA; border-right: 1px solid #EAEAEA; }
-    h1 { color: #111111; font-weight: 800; letter-spacing: -1.5px; }
-    h2, h3 { color: #333333; font-weight: 700; letter-spacing: -1px; }
-    div[data-testid="stMetricValue"] { color: #2962FF; font-weight: 800; font-size: 36px !important; }
-    div.stButton > button { background-color: #2962FF; color: white; border-radius: 8px; border: none; }
-    div.stButton > button:hover { background-color: #0039CB; color: white; }
-    .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
     
-    .ai-box {
-        background-color: #E8F0FE;
+    /* 1. 사이드바 & 텍스트 기본 */
+    section[data-testid="stSidebar"] {
+        background-color: #F8F9FA;
+        border-right: 1px solid #EAEAEA;
+    }
+    h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -0.5px; }
+    
+    /* 2. [핵심] 타이틀 로고 스타일 (크고 강력한 블루) */
+    .big-title {
+        color: #2962FF; /* 메인 블루 */
+        font-family: 'Pretendard', sans-serif;
+        font-size: 4.5rem !important; /* 글자 크기 대폭 확대 */
+        font-weight: 900; /* 가장 굵게 */
+        letter-spacing: -2px;
+        line-height: 1.0;
+        margin-bottom: 30px;
+        text-shadow: 2px 2px 0px #E3F2FD; /* 살짝 입체감 */
+    }
+    
+    /* 3. 체크박스 색상 강제 변경 (빨강 -> 파랑) */
+    /* 체크된 상태의 박스 색상을 파란색으로 덮어씌움 */
+    div[data-baseweb="checkbox"] div[aria-checked="true"] {
+        background-color: #2962FF !important;
+        border-color: #2962FF !important;
+    }
+    
+    /* 4. 숫자(Metric) 컬러 */
+    div[data-testid="stMetricValue"] {
+        color: #2962FF !important;
+        font-weight: 800;
+        font-size: 42px !important;
+    }
+    div[data-testid="stMetricLabel"] { color: #666666; font-size: 14px; }
+    
+    /* 5. 버튼 스타일 */
+    div.stButton > button {
+        background-color: #2962FF;
+        color: white;
+        border-radius: 10px;
+        border: none;
+        padding: 0.5rem 1.2rem;
+        font-weight: 700;
+        transition: all 0.2s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #002ba1;
+        transform: translateY(-2px);
+    }
+    
+    /* 6. 입력창 포커스(테두리) 색상 */
+    .stTextInput > div > div > input:focus {
+        border-color: #2962FF !important;
+        box-shadow: 0 0 0 1px #2962FF !important;
+    }
+    
+    /* 7. 커스텀 박스 스타일 (AI박스 & 위치알림박스) */
+    .info-box {
+        background-color: #E3F2FD; /* 아주 연한 블루 */
         padding: 20px;
         border-radius: 12px;
-        border: 1px solid #D2E3FC;
+        border: 1px solid #90CAF9;
+        margin-bottom: 20px;
+        color: #0D47A1;
+    }
+    .location-box {
+        background-color: #E8F0FE;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #2962FF; /* 왼쪽 파란 띠 */
+        color: #1565C0;
+        font-weight: 600;
         margin-bottom: 20px;
     }
 </style>
@@ -46,7 +106,6 @@ st.markdown("""
 
 lang_dict = {
     'ko': {
-        'title': "SEOUL TOILET FINDER",
         'desc': "서울시 공중화장실, 지하철, 편의점 위치 안내 서비스",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "현재 위치 (예: 강남역, 시청)",
@@ -75,7 +134,7 @@ lang_dict = {
         'fb_msg': "내용을 입력해주세요",
         'fb_btn': "의견 보내기",
         'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙",
-        'youtube_title': "📺 주변 분위기 (Vlog)",
+        'youtube_title': "📺 Nearby Vibe (Vlog)",
         'youtube_error': "영상을 불러올 수 없습니다.",
         'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요.",
         'ai_title': "🤖 AI 화장실 소믈리에 (Beta)",
@@ -86,7 +145,6 @@ lang_dict = {
         'ai_need_key': "⚠️ 설정(Secrets)에 OpenAI API Key가 필요합니다."
     },
     'en': {
-        'title': "SEOUL TOILET FINDER",
         'desc': "Find nearby public toilets, subway stations, and safe stores.",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "Enter Location (e.g., Gangnam Station)",
@@ -215,14 +273,13 @@ with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
     st.subheader(txt['sidebar_header'])
+    
+    # 체크박스 (CSS로 파란색이 되도록 설정됨)
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
     
     st.divider()
-    
-    # 🧹 [수정] 파일 업로드 버튼 삭제됨! 깔끔!
-    # uploaded_file = st.file_uploader(txt['upload_label'], type=['csv']) 
     
     default_val = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_val)
@@ -232,10 +289,10 @@ with st.sidebar:
         if os.path.exists('user_feedback.csv'): st.write("📥 Feedback List:"); st.dataframe(pd.read_csv('user_feedback.csv'))
         else: st.caption("No feedback yet.")
 
-st.title(txt['title'])
+# 🏆 [변경] 파랗고 큰 타이틀 로고
+st.markdown('<h1 class="big-title">SEOUL<br>TOILET FINDER</h1>', unsafe_allow_html=True)
 st.caption(txt['desc'])
 
-# 🧹 [수정] 업로드 과정 없이 바로 기본 파일 로드
 try: 
     df_toilet = load_data('seoul_toilet.csv')
 except: 
@@ -246,13 +303,19 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_blue_v2", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
         if location:
             user_lat, user_lon = location.latitude, location.longitude
-            st.success(txt['success_loc'].format(location.address))
+            
+            # 🏆 [변경] 초록색 st.success 대신 -> 파란색 커스텀 박스로 교체!
+            st.markdown(f"""
+            <div class="location-box">
+                {txt['success_loc'].format(location.address)}
+            </div>
+            """, unsafe_allow_html=True)
             
             def calculate_distance(row): return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
             df_toilet['dist'] = df_toilet.apply(calculate_distance, axis=1)
@@ -273,7 +336,12 @@ if user_address and df_toilet is not None:
 
             # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
-                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="info-box">
+                    <h3 style="margin-top:0; color:#0D47A1;">{txt['ai_title']}</h3>
+                    <p>{txt['ai_desc']}</p>
+                </div>""", unsafe_allow_html=True)
+                
                 with st.form("ai_form"):
                     user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
                     ai_submitted = st.form_submit_button(txt['ai_btn'])
@@ -321,12 +389,12 @@ if user_address and df_toilet is not None:
 
             with col2:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles='CartoDB positron')
-                folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='blue', icon='user')).add_to(m)
+                folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
                 marker_cluster = MarkerCluster().add_to(m)
                 if show_toilet:
                     for idx, r in nearby_toilet.iterrows():
-                        if row is not None and r['name'] == row['name']: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='blue', icon='star')).add_to(m)
-                        else: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='blue', icon='info-sign')).add_to(marker_cluster)
+                        if row is not None and r['name'] == row['name']: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='star')).add_to(m)
+                        else: folium.Marker([r['lat'], r['lon']], popup=f"<b>{r['name']}</b>", icon=folium.Icon(color='green', icon='info-sign')).add_to(marker_cluster)
                 if show_subway:
                     for idx, r in nearby_subway.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🚇 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='orange', icon='arrow-down', prefix='fa')).add_to(m)
                 if show_store:
