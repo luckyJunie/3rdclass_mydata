@@ -54,8 +54,7 @@ lang_dict = {
         'show_toilet': "공중화장실 (Toilet)",
         'show_subway': "지하철역 (Subway)",
         'show_store': "안심 편의점 (Store)",
-        'upload_label': "데이터 파일 업로드 (.csv)",
-        'error_file': "⚠️ 데이터 파일을 찾을 수 없습니다.",
+        'error_file': "⚠️ 데이터 파일을 찾을 수 없습니다. (seoul_toilet.csv)",
         'success_loc': "📍 위치 확인됨: {}",
         'metric_label': "검색된 시설",
         'metric_dist': "가장 가까운 곳",
@@ -95,8 +94,7 @@ lang_dict = {
         'show_toilet': "Public Toilet",
         'show_subway': "Subway Station",
         'show_store': "Convenience Store",
-        'upload_label': "Upload CSV File",
-        'error_file': "⚠️ Data file missing.",
+        'error_file': "⚠️ Data file missing. (seoul_toilet.csv)",
         'success_loc': "📍 Location: {}",
         'metric_label': "Found Places",
         'metric_dist': "Nearest",
@@ -133,11 +131,10 @@ if 'lang' not in st.session_state: st.session_state.lang = 'ko'
 def toggle_language(): st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 txt = lang_dict[st.session_state.lang]
 
-# 🧠 [수정됨] 에러 안 나도록 고친 AI 함수
+# 🧠 AI 함수
 def ask_gpt_recommendation(df_nearby, user_query):
     if not OPENAI_API_KEY: return "⚠️ API Key가 설정되지 않았습니다. (Secrets를 확인해주세요)"
     
-    # 여기서 to_markdown 대신 to_csv를 써서 설치 문제를 해결했습니다!
     df_slim = df_nearby[['name', 'dist', 'unisex', 'diaper', 'bell', 'cctv']].head(15)
     data_context = df_slim.to_csv(index=False) 
     
@@ -221,8 +218,12 @@ with st.sidebar:
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
+    
     st.divider()
-    uploaded_file = st.file_uploader(txt['upload_label'], type=['csv'])
+    
+    # 🧹 [수정] 파일 업로드 버튼 삭제됨! 깔끔!
+    # uploaded_file = st.file_uploader(txt['upload_label'], type=['csv']) 
+    
     default_val = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_val)
     search_radius = st.slider(txt['radius_label'], 0.5, 5.0, 1.0)
@@ -234,17 +235,18 @@ with st.sidebar:
 st.title(txt['title'])
 st.caption(txt['desc'])
 
-df_toilet = None
-if uploaded_file: df_toilet = load_data(uploaded_file)
-else:
-    try: df_toilet = load_data('seoul_toilet.csv')
-    except: st.warning(txt['error_file']); st.stop()
+# 🧹 [수정] 업로드 과정 없이 바로 기본 파일 로드
+try: 
+    df_toilet = load_data('seoul_toilet.csv')
+except: 
+    st.warning(txt['error_file'])
+    st.stop()
 
 df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_fixed_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_v1", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -283,7 +285,7 @@ if user_address and df_toilet is not None:
                                 st.info(ai_answer)
                 st.markdown("---")
 
-            # 목록 및 지도 (여기서부터 다시 보일 거예요!)
+            # 목록 및 지도
             col1, col2 = st.columns([1, 1.5])
             with col1:
                 if not nearby_toilet.empty:
