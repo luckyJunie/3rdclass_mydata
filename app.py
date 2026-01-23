@@ -5,13 +5,13 @@ from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
 
-st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기 / Seoul Toilet Finder")
+st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
-# 1. 다국어 설정 (메뉴는 영어/한국어 지원)
+# 1. 다국어 설정 (검색 관련 멘트 추가)
 lang_dict = {
     'ko': {
-        'title': "🚽 서울시 공중화장실 찾기 (상세보기)",
-        'desc': "위치를 입력하면 가까운 화장실의 상세 정보를 보여줍니다.",
+        'title': "🚽 서울시 공중화장실 찾기 (스마트 검색)",
+        'desc': "위치를 입력하고 목록에서 원하는 화장실을 검색해보세요.",
         'sidebar_header': "🔍 검색 설정",
         'input_label': "현재 위치 입력 (예: 강남역, 시청)",
         'radius_label': "검색 반경 (km)",
@@ -19,8 +19,9 @@ lang_dict = {
         'error_file': "⚠️ 데이터 파일을 찾을 수 없습니다. (seoul_toilet.csv)",
         'success_loc': "📍 검색된 위치: {}",
         'result_header': "총 {}개의 화장실 발견",
-        'radio_label': "목록에서 화장실을 선택하세요:",
-        'warn_no_result': "반경 내 화장실이 없습니다.",
+        'search_placeholder': "목록에서 이름으로 검색 (예: 공원)", # 추가됨
+        'select_label': "화장실 선택 (클릭하여 펼치기)", # 변경됨
+        'warn_no_result': "조건에 맞는 화장실이 없습니다.",
         'popup_current': "현 위치",
         'error_no_loc': "위치를 찾을 수 없습니다.",
         'btn_label': "🇺🇸 Switch to English",
@@ -29,12 +30,12 @@ lang_dict = {
         'col_addr': "주소",
         'col_time': "운영시간",
         'col_diaper': "기저귀교환대",
-        'col_safety': "안전시설(비상벨/CCTV)",
-        'col_unisex': "남녀공용여부"
+        'col_safety': "안전시설",
+        'col_unisex': "남녀공용"
     },
     'en': {
-        'title': "🚽 Seoul Public Toilet Finder (Detail View)",
-        'desc': "Find nearby toilets with detailed facility information.",
+        'title': "🚽 Seoul Public Toilet Finder (Smart Search)",
+        'desc': "Enter location and search for specific toilets in the list.",
         'sidebar_header': "🔍 Search Settings",
         'input_label': "Enter Location (e.g., Gangnam Station)",
         'radius_label': "Search Radius (km)",
@@ -42,8 +43,9 @@ lang_dict = {
         'error_file': "⚠️ Data file missing. (seoul_toilet.csv)",
         'success_loc': "📍 Location found: {}",
         'result_header': "Found {} restrooms",
-        'radio_label': "Select a restroom from the list:",
-        'warn_no_result': "No restrooms found nearby.",
+        'search_placeholder': "Filter by name (e.g., Park)", # 추가됨
+        'select_label': "Select a restroom", # 변경됨
+        'warn_no_result': "No restrooms match your search.",
         'popup_current': "Current Location",
         'error_no_loc': "Location not found.",
         'btn_label': "🇰🇷 한국어로 변경",
@@ -52,7 +54,7 @@ lang_dict = {
         'col_addr': "Address",
         'col_time': "Hours",
         'col_diaper': "Diaper Station",
-        'col_safety': "Safety (Bell/CCTV)",
+        'col_safety': "Safety",
         'col_unisex': "Unisex"
     }
 }
@@ -65,7 +67,7 @@ def toggle_language():
 
 txt = lang_dict[st.session_state.lang]
 
-# 2. 데이터 로드 및 전처리 (상세 정보 컬럼 추가)
+# 2. 데이터 로드
 @st.cache_data
 def load_data(file):
     try:
@@ -76,52 +78,32 @@ def load_data(file):
         except:
             df = pd.read_csv(file, encoding='euc-kr')
 
-    # 필요한 컬럼이 있는지 확인하고 없으면 '정보없음'으로 채움
-    # (데이터 파일마다 컬럼 이름이 조금씩 다를 수 있어 유연하게 처리)
     target_cols = {
-        '건물명': 'name', 
-        '도로명주소': 'addr', 
-        '개방시간': 'hours', 
-        'x 좌표': 'lon', 
-        'y 좌표': 'lat',
-        # 상세 정보 컬럼 매핑 (데이터 파일에 실제 존재하는 컬럼명이어야 함)
-        # 만약 CSV 파일에 이 컬럼들이 없다면 아래 로직에서 '정보없음' 처리됨
-        '남녀공용화장실여부': 'unisex',
-        '대변기수(남)': 'men_toilet',
-        '대변기수(여)': 'women_toilet',
-        '기저귀교환대장소': 'diaper', # 또는 '기저귀교환대유무'
-        '비상벨설치여부': 'bell',
-        'CCTV설치여부': 'cctv'
+        '건물명': 'name', '도로명주소': 'addr', '개방시간': 'hours', 
+        'x 좌표': 'lon', 'y 좌표': 'lat',
+        '남녀공용화장실여부': 'unisex', '기저귀교환대장소': 'diaper', 
+        '비상벨설치여부': 'bell', 'CCTV설치여부': 'cctv'
     }
     
-    # 실제 파일에 있는 컬럼만 가져오기
     existing_cols = [c for c in target_cols.keys() if c in df.columns]
     df = df[existing_cols]
-    
-    # 컬럼 이름 영문 변수로 변경
     df.rename(columns=target_cols, inplace=True)
     
-    # 상세 정보가 없는 경우를 대비해 기본값 채우기
     for col in ['unisex', 'diaper', 'bell', 'cctv']:
-        if col not in df.columns:
-            df[col] = '-' # 컬럼 자체가 없으면 하이픈 처리
-        else:
-            df[col] = df[col].fillna('정보없음') # 빈칸이면 정보없음
+        if col not in df.columns: df[col] = '-'
+        else: df[col] = df[col].fillna('정보없음')
 
-    # 텍스트 정리
-    str_cols = ['name', 'addr', 'hours', 'unisex', 'diaper', 'bell', 'cctv']
-    for col in str_cols:
-        if col in df.columns:
+    for col in df.columns:
+        if df[col].dtype == object:
             df[col] = df[col].astype(str).str.replace('|', '', regex=False)
 
-    # 좌표 필터링
     if 'lat' in df.columns and 'lon' in df.columns:
         df = df[(df['lat'] > 37.4) & (df['lat'] < 37.8)]
         df = df[(df['lon'] > 126.7) & (df['lon'] < 127.3)]
 
     return df
 
-# 3. 사이드바 UI
+# 3. 사이드바
 with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
@@ -132,23 +114,18 @@ with st.sidebar:
     user_address = st.text_input(txt['input_label'], default_val)
     search_radius = st.slider(txt['radius_label'], 0.5, 5.0, 1.0)
 
-# 4. 데이터 불러오기
+# 4. 메인 화면
 st.title(txt['title'])
 st.markdown(txt['desc'])
 
 df = None
-if uploaded_file:
-    df = load_data(uploaded_file)
+if uploaded_file: df = load_data(uploaded_file)
 else:
-    try:
-        df = load_data('seoul_toilet.csv')
-    except:
-        st.warning(txt['error_file'])
-        st.stop()
+    try: df = load_data('seoul_toilet.csv')
+    except: st.warning(txt['error_file']); st.stop()
 
-# 5. 메인 로직
 if user_address and df is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_detail_v1", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_smart_search_v2", timeout=10)
     
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
@@ -159,47 +136,69 @@ if user_address and df is not None:
             user_lon = location.longitude
             st.success(txt['success_loc'].format(location.address))
             
-            # 거리 계산
             def calculate_distance(row):
                 return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
 
             df['dist'] = df.apply(calculate_distance, axis=1)
             nearby = df[df['dist'] <= search_radius].sort_values(by='dist')
             
+            # ----------------------------------------------------------------
+            # ✨ 여기가 핵심! UI 개선 부분 ✨
+            # ----------------------------------------------------------------
             col1, col2 = st.columns([1, 1.5])
             
             with col1:
                 st.subheader(txt['result_header'].format(len(nearby)))
+                
                 if not nearby.empty:
-                    # 라디오 버튼으로 선택
-                    selected_name = st.radio(txt['radio_label'], nearby['name'].tolist())
-                    row = nearby[nearby['name'] == selected_name].iloc[0]
+                    # [1] 검색 필터 (텍스트 입력창)
+                    search_keyword = st.text_input("🔍 " + txt['search_placeholder'])
                     
-                    # ------------------------------------------------
-                    # ✨ [상세 정보 보여주는 부분] ✨
-                    # ------------------------------------------------
-                    st.markdown("---")
-                    st.markdown(f"### {txt['detail_title']}")
-                    st.markdown(f"**🏠 {txt['col_name']}**: {row['name']}")
-                    st.markdown(f"**📍 {txt['col_addr']}**: {row['addr']}")
-                    st.markdown(f"**⏰ {txt['col_time']}**: {row['hours']}")
-                    st.markdown(f"**👫 {txt['col_unisex']}**: {row['unisex']}")
-                    
-                    # 아이콘으로 가독성 높이기
-                    diaper_info = row['diaper'] if row['diaper'] != '-' else "정보없음"
-                    st.markdown(f"**👶 {txt['col_diaper']}**: {diaper_info}")
-                    
-                    safety_info = []
-                    if row['bell'] == 'Y' or '설치' in str(row['bell']): safety_info.append("비상벨 🚨")
-                    if row['cctv'] == 'Y' or '설치' in str(row['cctv']): safety_info.append("CCTV 📷")
-                    
-                    if not safety_info:
-                        safety_str = "정보없음"
+                    # 사용자가 검색어를 입력하면 목록을 필터링함
+                    if search_keyword:
+                        nearby_filtered = nearby[nearby['name'].str.contains(search_keyword)]
                     else:
-                        safety_str = ", ".join(safety_info)
+                        nearby_filtered = nearby
+
+                    # [2] 검색 결과가 있는지 확인
+                    if not nearby_filtered.empty:
+                        # [3] 세련된 드롭다운 메뉴 (Selectbox)
+                        selected_name = st.selectbox(
+                            txt['select_label'], 
+                            nearby_filtered['name'].tolist()
+                        )
                         
-                    st.markdown(f"**🛡️ {txt['col_safety']}**: {safety_str}")
-                    
+                        row = nearby_filtered[nearby_filtered['name'] == selected_name].iloc[0]
+                        
+                        # [4] 상세 정보 표시 (카드 형태 디자인)
+                        st.markdown("---")
+                        st.info(f"**🏠 {row['name']}**") # 이름 강조
+                        
+                        st.write(f"**📍 {txt['col_addr']}**")
+                        st.caption(f"{row['addr']}")
+                        
+                        st.write(f"**⏰ {txt['col_time']}**")
+                        st.caption(f"{row['hours']}")
+                        
+                        # 아이콘 정보 한줄 요약
+                        safety_icons = ""
+                        if row['diaper'] != '-' and row['diaper'] != '정보없음': safety_icons += "👶 "
+                        if row['bell'] == 'Y' or '설치' in str(row['bell']): safety_icons += "🚨 "
+                        if row['cctv'] == 'Y' or '설치' in str(row['cctv']): safety_icons += "📷 "
+                        if row['unisex'] == 'Y': safety_icons += "👫"
+                        
+                        if safety_icons:
+                            st.success(f"**Facility:** {safety_icons}")
+                            
+                        # 남은 상세 정보
+                        with st.expander(txt['detail_title'] + " (Click)"):
+                            st.write(f"- {txt['col_diaper']}: {row['diaper']}")
+                            st.write(f"- {txt['col_safety']}: 비상벨({row['bell']}), CCTV({row['cctv']})")
+                            st.write(f"- {txt['col_unisex']}: {row['unisex']}")
+                            
+                    else:
+                        st.warning(txt['warn_no_result'])
+                        row = None
                 else:
                     st.warning(txt['warn_no_result'])
                     row = None
@@ -208,22 +207,21 @@ if user_address and df is not None:
                 m = folium.Map(location=[user_lat, user_lon], zoom_start=15)
                 folium.Marker([user_lat, user_lon], popup=txt['popup_current'], icon=folium.Icon(color='red', icon='user')).add_to(m)
                 
+                # 지도에는 필터링된 결과만 보여줄지, 전체를 보여줄지 선택 가능
+                # 여기서는 전체를 보여주되, 선택된 것만 초록색으로 표시
                 for idx, r in nearby.iterrows():
                     color = 'green' if row is not None and r['name'] == row['name'] else 'blue'
                     
-                    # 팝업에도 간단한 정보 표시
-                    popup_content = f"""
-                    <div style='width:200px'>
-                        <b>{r['name']}</b><br>
-                        {r['hours']}<br>
-                        남녀공용: {r['unisex']}
-                    </div>
-                    """
+                    # 선택된 마커는 좀 더 크게 보이게 하거나 아이콘 변경
+                    icon_type = 'star' if row is not None and r['name'] == row['name'] else 'info-sign'
+                    
+                    popup_content = f"<div style='width:150px'><b>{r['name']}</b><br>{r['hours']}</div>"
+                    
                     folium.Marker(
                         [r['lat'], r['lon']], 
                         popup=folium.Popup(popup_content, max_width=300), 
                         tooltip=r['name'], 
-                        icon=folium.Icon(color=color, icon='info-sign')
+                        icon=folium.Icon(color=color, icon=icon_type)
                     ).add_to(m)
                 
                 st_folium(m, width="100%", height=500)
@@ -231,7 +229,5 @@ if user_address and df is not None:
             st.error(txt['error_no_loc'])
             
     except Exception as e:
-        if "503" in str(e):
-             st.error("⚠️ Server busy. Try again.")
-        else:
-            st.error(f"Error: {e}")
+        if "503" in str(e): st.error("⚠️ Server busy. Try again.")
+        else: st.error(f"Error: {e}")
