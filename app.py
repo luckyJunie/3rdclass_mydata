@@ -20,7 +20,7 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일] - 체크박스와 슬라이더까지 완벽한 블루!
+# 🎨 [CSS 스타일] - 슬라이더 오류 수정 완료!
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
@@ -47,19 +47,24 @@ st.markdown("""
         text-shadow: 2px 2px 0px #E3F2FD;
     }
     
-    /* 3. [핵심] 체크박스 색상 변경 (빨강 -> 파랑) */
-    /* 체크된 상태의 배경색과 테두리를 파란색으로 강제 변경 */
+    /* 3. [수정됨] 체크박스 (체크된 상태만 파랗게!) */
     div[role="checkbox"][aria-checked="true"] {
         background-color: #2962FF !important;
         border-color: #2962FF !important;
     }
     
-    /* 4. [핵심] 슬라이더(Slider) 색상 변경 */
-    div[data-baseweb="slider"] div {
+    /* 4. [수정됨] 슬라이더 (오류 해결!) */
+    /* 파란 박스가 생기는 원인이었던 전체 선택자 삭제함 */
+    
+    /* 슬라이더의 동그라미(Thumb)만 콕 집어서 파란색으로 변경 */
+    div[role="slider"] {
         background-color: #2962FF !important;
+        border-color: #2962FF !important;
     }
-    div[data-testid="stSliderTickBarMin"] { background-color: #2962FF !important; }
-    div[data-testid="stSliderTickBarMax"] { background-color: #2962FF !important; }
+    /* 슬라이더 값 표시되는 텍스트 색상 */
+    div[data-testid="stSliderTickBarMin"], div[data-testid="stSliderTickBarMax"] {
+        color: #2962FF !important;
+    }
     
     /* 5. 숫자(Metric) 컬러 */
     div[data-testid="stMetricValue"] {
@@ -281,7 +286,6 @@ with st.sidebar:
     st.divider()
     st.subheader(txt['sidebar_header'])
     
-    # CSS로 체크박스 색상을 파란색으로 변경해두었습니다!
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
@@ -310,7 +314,7 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_blue_v3", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_blue_fixed", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
