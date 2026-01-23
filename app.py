@@ -10,7 +10,7 @@ from datetime import datetime
 import requests
 import openai
 
-st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
+st.set_page_config(layout="wide", page_title="SEOUL TOILET FINDER")
 
 # 🔒 [보안] API Key 가져오기
 try:
@@ -20,7 +20,7 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일] - 블루 테마 & 강력한 타이틀 적용
+# 🎨 [CSS 스타일] - 완벽한 올 블루(All Blue) 테마 적용
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
@@ -28,64 +28,77 @@ st.markdown("""
     html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #FFFFFF; }
     
-    /* 1. 사이드바 스타일 */
+    /* 1. 사이드바 & 텍스트 기본 */
     section[data-testid="stSidebar"] {
         background-color: #F8F9FA;
         border-right: 1px solid #EAEAEA;
     }
+    h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -0.5px; }
     
-    /* 2. 타이틀 스타일 (크고 개성있게!) */
+    /* 2. [핵심] 타이틀 로고 스타일 (크고 강력한 블루) */
     .big-title {
-        color: #2962FF; /* 쨍한 블루 */
+        color: #2962FF; /* 메인 블루 */
         font-family: 'Pretendard', sans-serif;
-        font-size: 4rem !important; /* 엄청 크게 */
+        font-size: 4.5rem !important; /* 글자 크기 대폭 확대 */
         font-weight: 900; /* 가장 굵게 */
-        letter-spacing: -3px; /* 자간을 좁혀서 로고처럼 */
-        line-height: 1.1;
-        margin-bottom: 20px;
-        text-shadow: 4px 4px 0px rgba(41, 98, 255, 0.1); /* 입체감 */
+        letter-spacing: -2px;
+        line-height: 1.0;
+        margin-bottom: 30px;
+        text-shadow: 2px 2px 0px #E3F2FD; /* 살짝 입체감 */
     }
     
-    /* 3. 서브헤더 및 텍스트 강조 컬러 */
-    h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -1px; }
+    /* 3. 체크박스 색상 강제 변경 (빨강 -> 파랑) */
+    /* 체크된 상태의 박스 색상을 파란색으로 덮어씌움 */
+    div[data-baseweb="checkbox"] div[aria-checked="true"] {
+        background-color: #2962FF !important;
+        border-color: #2962FF !important;
+    }
     
     /* 4. 숫자(Metric) 컬러 */
     div[data-testid="stMetricValue"] {
         color: #2962FF !important;
         font-weight: 800;
-        font-size: 40px !important;
+        font-size: 42px !important;
     }
-    div[data-testid="stMetricLabel"] { color: #555555; }
+    div[data-testid="stMetricLabel"] { color: #666666; font-size: 14px; }
     
-    /* 5. 버튼 스타일 (블루) */
+    /* 5. 버튼 스타일 */
     div.stButton > button {
         background-color: #2962FF;
         color: white;
-        border-radius: 12px;
+        border-radius: 10px;
         border: none;
         padding: 0.5rem 1.2rem;
         font-weight: 700;
         transition: all 0.2s ease;
     }
     div.stButton > button:hover {
-        background-color: #002ba1; /* 더 진한 네이비 블루 */
-        color: white;
-        transform: scale(1.02);
+        background-color: #002ba1;
+        transform: translateY(-2px);
     }
     
-    /* 6. 입력창 테두리 포커스 색상 */
-    .stTextInput > div > div > input:focus, 
-    .stSelectbox > div > div > div:focus {
+    /* 6. 입력창 포커스(테두리) 색상 */
+    .stTextInput > div > div > input:focus {
         border-color: #2962FF !important;
         box-shadow: 0 0 0 1px #2962FF !important;
     }
     
-    /* 7. AI 박스 스타일 */
-    .ai-box {
-        background-color: #E3F2FD; /* 블루 계열의 아주 연한 배경 */
-        padding: 25px;
-        border-radius: 16px;
-        border: 2px solid #BBDEFB;
+    /* 7. 커스텀 박스 스타일 (AI박스 & 위치알림박스) */
+    .info-box {
+        background-color: #E3F2FD; /* 아주 연한 블루 */
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #90CAF9;
+        margin-bottom: 20px;
+        color: #0D47A1;
+    }
+    .location-box {
+        background-color: #E8F0FE;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #2962FF; /* 왼쪽 파란 띠 */
+        color: #1565C0;
+        font-weight: 600;
         margin-bottom: 20px;
     }
 </style>
@@ -260,6 +273,8 @@ with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
     st.subheader(txt['sidebar_header'])
+    
+    # 체크박스 (CSS로 파란색이 되도록 설정됨)
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
@@ -274,7 +289,7 @@ with st.sidebar:
         if os.path.exists('user_feedback.csv'): st.write("📥 Feedback List:"); st.dataframe(pd.read_csv('user_feedback.csv'))
         else: st.caption("No feedback yet.")
 
-# 🏆 [변경] 타이틀을 HTML로 직접 그려서 크고 파랗게 만듦!
+# 🏆 [변경] 파랗고 큰 타이틀 로고
 st.markdown('<h1 class="big-title">SEOUL<br>TOILET FINDER</h1>', unsafe_allow_html=True)
 st.caption(txt['desc'])
 
@@ -288,13 +303,19 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_blue", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_blue_v2", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
         if location:
             user_lat, user_lon = location.latitude, location.longitude
-            st.success(txt['success_loc'].format(location.address))
+            
+            # 🏆 [변경] 초록색 st.success 대신 -> 파란색 커스텀 박스로 교체!
+            st.markdown(f"""
+            <div class="location-box">
+                {txt['success_loc'].format(location.address)}
+            </div>
+            """, unsafe_allow_html=True)
             
             def calculate_distance(row): return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
             df_toilet['dist'] = df_toilet.apply(calculate_distance, axis=1)
@@ -315,7 +336,12 @@ if user_address and df_toilet is not None:
 
             # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
-                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0; color:#0039CB;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="info-box">
+                    <h3 style="margin-top:0; color:#0D47A1;">{txt['ai_title']}</h3>
+                    <p>{txt['ai_desc']}</p>
+                </div>""", unsafe_allow_html=True)
+                
                 with st.form("ai_form"):
                     user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
                     ai_submitted = st.form_submit_button(txt['ai_btn'])
