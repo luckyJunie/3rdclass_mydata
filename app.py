@@ -8,14 +8,14 @@ from geopy.distance import geodesic
 import os
 from datetime import datetime
 import requests
-import openai # [필수] requirements.txt 덕분에 이제 작동함!
+import openai
 
 st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
-# 🔒 [보안] API Key 가져오기 (Secrets)
+# 🔒 [보안] API Key 가져오기
 try:
     YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
-    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"] # GPT 키 가져오기
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
@@ -34,9 +34,8 @@ st.markdown("""
     div.stButton > button:hover { background-color: #0039CB; color: white; }
     .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
     
-    /* AI 채팅 박스 스타일 */
     .ai-box {
-        background-color: #E8F0FE; /* 아주 연한 블루 */
+        background-color: #E8F0FE;
         padding: 20px;
         border-radius: 12px;
         border: 1px solid #D2E3FC;
@@ -134,13 +133,13 @@ if 'lang' not in st.session_state: st.session_state.lang = 'ko'
 def toggle_language(): st.session_state.lang = 'en' if st.session_state.lang == 'ko' else 'ko'
 txt = lang_dict[st.session_state.lang]
 
-# 🧠 [NEW] GPT 호출 함수 (화장실 추천 로직)
+# 🧠 [수정됨] 에러 안 나도록 고친 AI 함수
 def ask_gpt_recommendation(df_nearby, user_query):
-    if not OPENAI_API_KEY: return "API Key가 설정되지 않았습니다."
+    if not OPENAI_API_KEY: return "⚠️ API Key가 설정되지 않았습니다. (Secrets를 확인해주세요)"
     
-    # 데이터프레임을 텍스트로 변환 (상위 15개만)
+    # 여기서 to_markdown 대신 to_csv를 써서 설치 문제를 해결했습니다!
     df_slim = df_nearby[['name', 'dist', 'unisex', 'diaper', 'bell', 'cctv']].head(15)
-    data_context = df_slim.to_markdown(index=False)
+    data_context = df_slim.to_csv(index=False) 
     
     system_prompt = f"""
     당신은 '화장실 소믈리에'입니다. 
@@ -165,9 +164,8 @@ def ask_gpt_recommendation(df_nearby, user_query):
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"오류가 발생했습니다: {e}"
+        return f"AI 연결 오류: {e}"
 
-# 유튜브 검색 함수
 def search_youtube(query):
     if not YOUTUBE_API_KEY: return []
     search_url = "https://www.googleapis.com/youtube/v3/search"
@@ -246,7 +244,7 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_ai_v2", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_fixed_v1", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -271,30 +269,21 @@ if user_address and df_toilet is not None:
                  else: st.metric(label="NEAREST", value="-")
             st.markdown("---")
 
-            # =================================================================
-            # 🤖 [NEW] AI 화장실 소믈리에 섹션 (여기 코드가 있어야 보입니다!)
-            # =================================================================
+            # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
-                st.markdown(f"""
-                <div class="ai-box">
-                    <h3 style="margin-top:0;">{txt['ai_title']}</h3>
-                    <p style="color:#555;">{txt['ai_desc']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
+                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
                 with st.form("ai_form"):
                     user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
                     ai_submitted = st.form_submit_button(txt['ai_btn'])
-                    
                     if ai_submitted and user_question:
-                        if not OPENAI_API_KEY:
-                            st.warning(txt['ai_need_key'])
+                        if not OPENAI_API_KEY: st.warning(txt['ai_need_key'])
                         else:
                             with st.spinner(txt['ai_thinking']):
                                 ai_answer = ask_gpt_recommendation(nearby_toilet, user_question)
                                 st.info(ai_answer)
                 st.markdown("---")
 
+            # 목록 및 지도 (여기서부터 다시 보일 거예요!)
             col1, col2 = st.columns([1, 1.5])
             with col1:
                 if not nearby_toilet.empty:
@@ -325,7 +314,6 @@ if user_address and df_toilet is not None:
                             st.write(f"- 기저귀교환대: {row['diaper']}")
                             st.write(f"- 안전시설: 비상벨({row['bell']}), CCTV({row['cctv']})")
                             st.write(f"- 남녀공용: {row['unisex']}")
-
                     else: st.warning(txt['warn_no_result']); row = None
                 else: st.warning(txt['warn_no_result']); row = None
 
@@ -343,12 +331,11 @@ if user_address and df_toilet is not None:
                     for idx, r in nearby_store.iterrows(): folium.Marker([r['lat'], r['lon']], popup=f"<b>🏪 {r['name']}</b>", tooltip=r['name'], icon=folium.Icon(color='purple', icon='shopping-cart', prefix='fa')).add_to(m)
                 st_folium(m, width="100%", height=500)
             
-            # 📺 유튜브 영상 영역
+            # 📺 유튜브 영상
             if row is not None:
                 st.markdown("---")
                 st.subheader(txt['youtube_title'])
-                if not YOUTUBE_API_KEY:
-                    st.warning(txt['youtube_need_key'])
+                if not YOUTUBE_API_KEY: st.warning(txt['youtube_need_key'])
                 else:
                     with st.spinner("Finding Vlogs..."):
                         yt_query = f"{user_address} 맛집 핫플"
