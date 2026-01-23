@@ -10,7 +10,7 @@ from datetime import datetime
 import requests
 import openai
 
-st.set_page_config(layout="wide", page_title="SEOUL TOILET FINDER")
+st.set_page_config(layout="wide", page_title="서울시 공중화장실 찾기")
 
 # 🔒 [보안] API Key 가져오기
 try:
@@ -20,97 +20,25 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일] - 슬라이더 오류 수정 완료!
+# 🎨 [CSS 스타일]
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
-    
     html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #FFFFFF; }
+    section[data-testid="stSidebar"] { background-color: #F8F9FA; border-right: 1px solid #EAEAEA; }
+    h1 { color: #111111; font-weight: 800; letter-spacing: -1.5px; }
+    h2, h3 { color: #333333; font-weight: 700; letter-spacing: -1px; }
+    div[data-testid="stMetricValue"] { color: #2962FF; font-weight: 800; font-size: 36px !important; }
+    div.stButton > button { background-color: #2962FF; color: white; border-radius: 8px; border: none; }
+    div.stButton > button:hover { background-color: #0039CB; color: white; }
+    .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea { background-color: #F8F9FA; border-radius: 8px; border: 1px solid #E0E0E0; }
     
-    /* 1. 사이드바 & 텍스트 */
-    section[data-testid="stSidebar"] {
-        background-color: #F8F9FA;
-        border-right: 1px solid #EAEAEA;
-    }
-    h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -0.5px; }
-    
-    /* 2. 타이틀 로고 */
-    .big-title {
-        color: #2962FF;
-        font-family: 'Pretendard', sans-serif;
-        font-size: 4.5rem !important;
-        font-weight: 900;
-        letter-spacing: -2px;
-        line-height: 1.0;
-        margin-bottom: 30px;
-        text-shadow: 2px 2px 0px #E3F2FD;
-    }
-    
-    /* 3. [수정됨] 체크박스 (체크된 상태만 파랗게!) */
-    div[role="checkbox"][aria-checked="true"] {
-        background-color: #2962FF !important;
-        border-color: #2962FF !important;
-    }
-    
-    /* 4. [수정됨] 슬라이더 (오류 해결!) */
-    /* 파란 박스가 생기는 원인이었던 전체 선택자 삭제함 */
-    
-    /* 슬라이더의 동그라미(Thumb)만 콕 집어서 파란색으로 변경 */
-    div[role="slider"] {
-        background-color: #2962FF !important;
-        border-color: #2962FF !important;
-    }
-    /* 슬라이더 값 표시되는 텍스트 색상 */
-    div[data-testid="stSliderTickBarMin"], div[data-testid="stSliderTickBarMax"] {
-        color: #2962FF !important;
-    }
-    
-    /* 5. 숫자(Metric) 컬러 */
-    div[data-testid="stMetricValue"] {
-        color: #2962FF !important;
-        font-weight: 800;
-        font-size: 42px !important;
-    }
-    div[data-testid="stMetricLabel"] { color: #666666; font-size: 14px; }
-    
-    /* 6. 버튼 스타일 */
-    div.stButton > button {
-        background-color: #2962FF;
-        color: white;
-        border-radius: 10px;
-        border: none;
-        padding: 0.5rem 1.2rem;
-        font-weight: 700;
-        transition: all 0.2s ease;
-    }
-    div.stButton > button:hover {
-        background-color: #002ba1;
-        transform: translateY(-2px);
-    }
-    
-    /* 7. 입력창 포커스 색상 */
-    .stTextInput > div > div > input:focus {
-        border-color: #2962FF !important;
-        box-shadow: 0 0 0 1px #2962FF !important;
-    }
-    
-    /* 8. 커스텀 박스 스타일 */
-    .info-box {
-        background-color: #E3F2FD;
+    .ai-box {
+        background-color: #E8F0FE;
         padding: 20px;
         border-radius: 12px;
-        border: 1px solid #90CAF9;
-        margin-bottom: 20px;
-        color: #0D47A1;
-    }
-    .location-box {
-        background-color: #E8F0FE;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #2962FF;
-        color: #1565C0;
-        font-weight: 600;
+        border: 1px solid #D2E3FC;
         margin-bottom: 20px;
     }
 </style>
@@ -118,6 +46,7 @@ st.markdown("""
 
 lang_dict = {
     'ko': {
+        'title': "SEOUL TOILET FINDER",
         'desc': "서울시 공중화장실, 지하철, 편의점 위치 안내 서비스",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "현재 위치 (예: 강남역, 시청)",
@@ -146,7 +75,7 @@ lang_dict = {
         'fb_msg': "내용을 입력해주세요",
         'fb_btn': "의견 보내기",
         'fb_success': "소중한 의견이 전달되었습니다. 감사합니다! 💙",
-        'youtube_title': "📺 Nearby Vibe (Vlog)",
+        'youtube_title': "📺 주변 분위기 (Vlog)",
         'youtube_error': "영상을 불러올 수 없습니다.",
         'youtube_need_key': "⚠️ 설정(Secrets)에 YouTube API Key를 등록해주세요.",
         'ai_title': "🤖 AI 화장실 소믈리에 (Beta)",
@@ -157,6 +86,7 @@ lang_dict = {
         'ai_need_key': "⚠️ 설정(Secrets)에 OpenAI API Key가 필요합니다."
     },
     'en': {
+        'title': "SEOUL TOILET FINDER",
         'desc': "Find nearby public toilets, subway stations, and safe stores.",
         'sidebar_header': "SEARCH OPTION",
         'input_label': "Enter Location (e.g., Gangnam Station)",
@@ -285,12 +215,14 @@ with st.sidebar:
     st.button(txt['btn_label'], on_click=toggle_language)
     st.divider()
     st.subheader(txt['sidebar_header'])
-    
     show_toilet = st.checkbox(txt['show_toilet'], value=True)
     show_subway = st.checkbox(txt['show_subway'], value=True)
     show_store = st.checkbox(txt['show_store'], value=False)
     
     st.divider()
+    
+    # 🧹 [수정] 파일 업로드 버튼 삭제됨! 깔끔!
+    # uploaded_file = st.file_uploader(txt['upload_label'], type=['csv']) 
     
     default_val = "서울시청" if st.session_state.lang == 'ko' else "Seoul City Hall"
     user_address = st.text_input(txt['input_label'], default_val)
@@ -300,10 +232,10 @@ with st.sidebar:
         if os.path.exists('user_feedback.csv'): st.write("📥 Feedback List:"); st.dataframe(pd.read_csv('user_feedback.csv'))
         else: st.caption("No feedback yet.")
 
-# 🏆 메인 화면
-st.markdown('<h1 class="big-title">SEOUL<br>TOILET FINDER</h1>', unsafe_allow_html=True)
+st.title(txt['title'])
 st.caption(txt['desc'])
 
+# 🧹 [수정] 업로드 과정 없이 바로 기본 파일 로드
 try: 
     df_toilet = load_data('seoul_toilet.csv')
 except: 
@@ -314,19 +246,13 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_blue_fixed", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_v1", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
         if location:
             user_lat, user_lon = location.latitude, location.longitude
-            
-            # 파란색 위치 알림 박스
-            st.markdown(f"""
-            <div class="location-box">
-                {txt['success_loc'].format(location.address)}
-            </div>
-            """, unsafe_allow_html=True)
+            st.success(txt['success_loc'].format(location.address))
             
             def calculate_distance(row): return geodesic((user_lat, user_lon), (row['lat'], row['lon'])).km
             df_toilet['dist'] = df_toilet.apply(calculate_distance, axis=1)
@@ -347,12 +273,7 @@ if user_address and df_toilet is not None:
 
             # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
-                st.markdown(f"""
-                <div class="info-box">
-                    <h3 style="margin-top:0; color:#0D47A1;">{txt['ai_title']}</h3>
-                    <p>{txt['ai_desc']}</p>
-                </div>""", unsafe_allow_html=True)
-                
+                st.markdown(f"""<div class="ai-box"><h3 style="margin-top:0;">{txt['ai_title']}</h3><p style="color:#555;">{txt['ai_desc']}</p></div>""", unsafe_allow_html=True)
                 with st.form("ai_form"):
                     user_question = st.text_input("💬 질문", placeholder=txt['ai_placeholder'])
                     ai_submitted = st.form_submit_button(txt['ai_btn'])
