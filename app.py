@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -52,27 +53,31 @@ def inject_css():
             html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
             .stApp { background-color: #FFFFFF; }
 
+            /* Sidebar */
             section[data-testid="stSidebar"] {
                 background-color: #F8F9FA;
                 border-right: 1px solid #EAEAEA;
             }
             h2, h3, h4 { color: #0039CB; font-weight: 700; letter-spacing: -0.5px; }
 
+            /* Big Title */
             .big-title {
                 color: #2962FF;
                 font-size: 4.5rem !important;
                 font-weight: 900;
                 letter-spacing: -2px;
                 line-height: 1.0;
-                margin-bottom: 24px;
+                margin-bottom: 22px;
                 text-shadow: 2px 2px 0px #E3F2FD;
             }
 
+            /* Checkbox checked color */
             div[data-baseweb="checkbox"] div[aria-checked="true"] {
                 background-color: #2962FF !important;
                 border-color: #2962FF !important;
             }
 
+            /* Metric */
             div[data-testid="stMetricValue"] {
                 color: #2962FF !important;
                 font-weight: 800;
@@ -80,6 +85,7 @@ def inject_css():
             }
             div[data-testid="stMetricLabel"] { color: #666666; font-size: 14px; }
 
+            /* Button */
             div.stButton > button {
                 background-color: #2962FF;
                 color: white;
@@ -94,11 +100,13 @@ def inject_css():
                 transform: translateY(-2px);
             }
 
+            /* Text input focus */
             .stTextInput > div > div > input:focus {
                 border-color: #2962FF !important;
                 box-shadow: 0 0 0 1px #2962FF !important;
             }
 
+            /* Boxes */
             .info-box {
                 background-color: #E3F2FD;
                 padding: 18px;
@@ -122,7 +130,30 @@ def inject_css():
                 border-radius:12px;
                 border:1px solid #E0E0E0;
             }
-            .muted { color:#6b7280; }
+
+            /* -----------------------------
+               Tabs styling (bigger + blue + 강조)
+               ----------------------------- */
+            /* 탭 전체 영역 */
+            div[data-testid="stTabs"] {
+                margin-top: 8px;
+            }
+            /* 탭 버튼들 */
+            div[data-testid="stTabs"] button {
+                font-size: 20px !important;
+                font-weight: 900 !important;
+                color: #2962FF !important;
+                padding: 10px 16px !important;
+            }
+            /* 선택된 탭(aria-selected="true") */
+            div[data-testid="stTabs"] button[aria-selected="true"] {
+                color: #002ba1 !important;
+                border-bottom: 4px solid #2962FF !important;
+            }
+            /* 탭 밑줄 라인(기본 border) 약하게 */
+            div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+                border-bottom: 1px solid #E3F2FD !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -180,6 +211,8 @@ LANG = {
         "finding_vlogs": "Finding Vlogs...",
         "facility": "시설",
         "question_label": "💬 질문",
+        "search_web": "웹에서 보기",
+        "route_naver": "네이버지도 길찾기",
     },
     "en": {
         "desc": "Find nearby public toilets, subway stations, and safe stores.",
@@ -228,6 +261,8 @@ LANG = {
         "finding_vlogs": "Finding Vlogs...",
         "facility": "Facility",
         "question_label": "💬 Question",
+        "search_web": "Open on web",
+        "route_naver": "Naver route",
     },
 }
 
@@ -246,7 +281,6 @@ def toggle_language():
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_toilet_data(file_path: str) -> pd.DataFrame:
-    # encoding fallback
     for enc in ("utf-8", "cp949", "euc-kr"):
         try:
             df = pd.read_csv(file_path, encoding=enc)
@@ -270,19 +304,16 @@ def load_toilet_data(file_path: str) -> pd.DataFrame:
     existing_cols = [c for c in target_cols if c in df.columns]
     df = df[existing_cols].rename(columns=target_cols)
 
-    # ensure columns exist
     for col in ["unisex", "diaper", "bell", "cctv", "addr", "hours"]:
         if col not in df.columns:
             df[col] = "-"
         else:
             df[col] = df[col].fillna("정보없음")
 
-    # clean pipes
     for col in df.columns:
         if df[col].dtype == object:
             df[col] = df[col].astype(str).str.replace("|", "", regex=False)
 
-    # bounds filter (Seoul-ish)
     if "lat" in df.columns and "lon" in df.columns:
         df = df[(df["lat"] > 37.4) & (df["lat"] < 37.8)]
         df = df[(df["lon"] > 126.7) & (df["lon"] < 127.3)]
@@ -317,12 +348,7 @@ def load_sample_extra_data():
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def geocode_address(raw_address: str):
-    """
-    Cache geocoding to avoid repeated Nominatim calls.
-    Returns: (lat, lon, full_address) or None
-    """
-    geolocator = Nominatim(user_agent="seoul_toilet_finder_v3", timeout=10)
-    # If user didn't include Seoul/서울, prepend to improve hit rate
+    geolocator = Nominatim(user_agent="seoul_toilet_finder_v4", timeout=10)
     search_query = (
         f"Seoul {raw_address}"
         if ("Seoul" not in raw_address and "서울" not in raw_address)
@@ -335,16 +361,31 @@ def geocode_address(raw_address: str):
 
 
 def add_distance(df: pd.DataFrame, user_lat: float, user_lon: float) -> pd.DataFrame:
-    """
-    Adds 'dist' column (km).
-    Kept simple for correctness; can be optimized later if dataset grows huge.
-    """
     def _dist(row):
         return geodesic((user_lat, user_lon), (row["lat"], row["lon"])).km
 
     out = df.copy()
     out["dist"] = out.apply(_dist, axis=1)
     return out
+
+
+# -----------------------------
+# Naver Map Route Link
+# -----------------------------
+def naver_route_link(user_lat, user_lon, dest_lat, dest_lon, dest_name, mode="walk"):
+    """
+    Naver Map URL Scheme route link
+    mode: "walk" | "public" | "car" | "bicycle"
+    """
+    sname = quote("현재 위치")
+    dname = quote(str(dest_name))
+    appname = quote("https://seoul-toilet-finder.streamlit.app")
+    return (
+        f"nmap://route/{mode}"
+        f"?slat={user_lat}&slng={user_lon}&sname={sname}"
+        f"&dlat={dest_lat}&dlng={dest_lon}&dname={dname}"
+        f"&appname={appname}"
+    )
 
 
 # -----------------------------
@@ -391,11 +432,9 @@ def save_feedback(fb_type: str, message: str, file_name: str = "user_feedback.cs
 def ask_ai_recommendation(df_nearby: pd.DataFrame, user_query: str, api_key: str) -> str:
     if not api_key:
         return "⚠️ API Key가 설정되지 않았습니다. (Secrets를 확인해주세요)"
-
     if df_nearby is None or df_nearby.empty:
         return "주변에 검색된 화장실 데이터가 없어 추천할 수 없어요."
 
-    # keep context small
     cols = ["name", "dist", "unisex", "diaper", "bell", "cctv"]
     df_slim = df_nearby[cols].head(15).copy()
     df_slim["dist"] = df_slim["dist"].round(2)
@@ -432,8 +471,25 @@ def ask_ai_recommendation(df_nearby: pd.DataFrame, user_query: str, api_key: str
 
 
 # -----------------------------
-# Map
+# Map helpers
 # -----------------------------
+def facility_icons(row: pd.Series) -> str:
+    icons = ""
+    if str(row.get("diaper", "-")) not in ("-", "정보없음", "nan"):
+        icons += "👶 "
+    bell = str(row.get("bell", ""))
+    cctv = str(row.get("cctv", ""))
+    unisex = str(row.get("unisex", ""))
+
+    if bell == "Y" or "설치" in bell:
+        icons += "🚨 "
+    if cctv == "Y" or "설치" in cctv:
+        icons += "📷 "
+    if unisex == "Y":
+        icons += "👫"
+    return icons.strip()
+
+
 def build_map(
     user_lat: float,
     user_lon: float,
@@ -447,6 +503,7 @@ def build_map(
     selected_name: str | None,
 ):
     m = folium.Map(location=[user_lat, user_lon], zoom_start=15, tiles="CartoDB positron")
+
     folium.Marker(
         [user_lat, user_lon],
         popup=txt["popup_current"],
@@ -455,19 +512,54 @@ def build_map(
 
     marker_cluster = MarkerCluster().add_to(m)
 
+    # ✅ Toilets: hover tooltip + click popup with Naver route link
     if show_toilet and nearby_toilet is not None and not nearby_toilet.empty:
         for _, r in nearby_toilet.iterrows():
             is_selected = (selected_name is not None and r["name"] == selected_name)
+
+            route_url = naver_route_link(
+                user_lat=user_lat,
+                user_lon=user_lon,
+                dest_lat=r["lat"],
+                dest_lon=r["lon"],
+                dest_name=r["name"],
+                mode="walk",
+            )
+            # PC 대비: 네이버지도 웹 검색
+            search_url = f"https://map.naver.com/v5/search/{quote(str(r['name']))}"
+
+            popup_html = f"""
+            <div style="font-family:Pretendard, sans-serif; font-size:14px;">
+              <div style="font-weight:900; margin-bottom:6px;">🚻 {r['name']}</div>
+              <div style="color:#666; margin-bottom:10px;">약 {float(r['dist']):.2f} km</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <a href="{route_url}" style="text-decoration:none;">
+                  <span style="background:#2962FF; color:white; padding:6px 10px; border-radius:8px; font-weight:800;">
+                    {txt['route_naver']}
+                  </span>
+                </a>
+                <a href="{search_url}" target="_blank" style="text-decoration:none;">
+                  <span style="background:#E3F2FD; color:#0D47A1; padding:6px 10px; border-radius:8px; font-weight:800; border:1px solid #90CAF9;">
+                    {txt['search_web']}
+                  </span>
+                </a>
+              </div>
+            </div>
+            """
+            popup = folium.Popup(folium.IFrame(html=popup_html, width=280, height=150), max_width=320)
+
             if is_selected:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    popup=f"<b>{r['name']}</b>",
+                    tooltip=r["name"],   # ✅ hover
+                    popup=popup,         # ✅ click
                     icon=folium.Icon(color="green", icon="star"),
                 ).add_to(m)
             else:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    popup=f"<b>{r['name']}</b>",
+                    tooltip=r["name"],   # ✅ hover
+                    popup=popup,         # ✅ click
                     icon=folium.Icon(color="green", icon="info-sign"),
                 ).add_to(marker_cluster)
 
@@ -490,23 +582,6 @@ def build_map(
             ).add_to(m)
 
     return m
-
-
-def facility_icons(row: pd.Series) -> str:
-    icons = ""
-    if str(row.get("diaper", "-")) not in ("-", "정보없음", "nan"):
-        icons += "👶 "
-    bell = str(row.get("bell", ""))
-    cctv = str(row.get("cctv", ""))
-    unisex = str(row.get("unisex", ""))
-
-    if bell == "Y" or "설치" in bell:
-        icons += "🚨 "
-    if cctv == "Y" or "설치" in cctv:
-        icons += "📷 "
-    if unisex == "Y":
-        icons += "👫"
-    return icons.strip()
 
 
 # -----------------------------
@@ -552,7 +627,6 @@ def main():
     txt = LANG[st.session_state.lang]
 
     user_address, search_radius, show_toilet, show_subway, show_store = sidebar_ui(txt)
-
     top_header(txt)
 
     # Load data
@@ -575,7 +649,10 @@ def main():
         st.stop()
 
     user_lat, user_lon, full_addr = loc
-    st.markdown(f'<div class="location-box">{txt["success_loc"].format(full_addr)}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="location-box">{txt["success_loc"].format(full_addr)}</div>',
+        unsafe_allow_html=True,
+    )
 
     # Distance + filter
     df_toilet_d = add_distance(df_toilet, user_lat, user_lon)
@@ -599,7 +676,7 @@ def main():
         st.metric(label=txt["metric_nearest"], value=nearest)
     st.markdown("---")
 
-    # Tabs layout (more “app-like”)
+    # Tabs
     tab_map, tab_list, tab_ai, tab_vlog, tab_feedback = st.tabs(
         [txt["tab_map"], txt["tab_list"], txt["tab_ai"], txt["tab_vlog"], txt["tab_feedback"]]
     )
@@ -615,10 +692,11 @@ def main():
             left, right = st.columns([1, 1])
             with left:
                 search_keyword = st.text_input("🔍 " + txt["search_placeholder"])
-                if search_keyword:
-                    filtered = nearby_toilet[nearby_toilet["name"].str.contains(search_keyword, na=False)]
-                else:
-                    filtered = nearby_toilet
+                filtered = (
+                    nearby_toilet[nearby_toilet["name"].str.contains(search_keyword, na=False)]
+                    if search_keyword
+                    else nearby_toilet
+                )
 
                 if filtered.empty:
                     st.warning(txt["warn_no_result"])
@@ -668,7 +746,6 @@ def main():
             show_store=show_store,
             selected_name=selected_name,
         )
-        # width는 숫자가 안정적
         st_folium(m, width=1100, height=560)
 
     # AI tab
