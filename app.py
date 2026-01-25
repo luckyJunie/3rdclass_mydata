@@ -20,7 +20,7 @@ except:
     YOUTUBE_API_KEY = ""
     OPENAI_API_KEY = ""
 
-# 🎨 [CSS 스타일]
+# 🎨 [CSS 스타일] - 슬라이더 오류 수정 완료!
 st.markdown("""
 <style>
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
@@ -47,22 +47,34 @@ st.markdown("""
         text-shadow: 2px 2px 0px #E3F2FD;
     }
     
-    /* 3. 체크박스 색상 변경 */
+    /* 3. [수정됨] 체크박스 (체크된 상태만 파랗게!) */
     div[role="checkbox"][aria-checked="true"] {
         background-color: #2962FF !important;
         border-color: #2962FF !important;
     }
     
-    /* 4. 슬라이더 색상 변경 (오류 수정됨) */
+    /* 4. [수정됨] 슬라이더 (오류 해결!) */
+    /* 파란 박스가 생기는 원인이었던 전체 선택자 삭제함 */
+    
+    /* 슬라이더의 동그라미(Thumb)만 콕 집어서 파란색으로 변경 */
     div[role="slider"] {
         background-color: #2962FF !important;
         border-color: #2962FF !important;
     }
+    /* 슬라이더 값 표시되는 텍스트 색상 */
     div[data-testid="stSliderTickBarMin"], div[data-testid="stSliderTickBarMax"] {
         color: #2962FF !important;
     }
     
-    /* 5. 버튼 스타일 */
+    /* 5. 숫자(Metric) 컬러 */
+    div[data-testid="stMetricValue"] {
+        color: #2962FF !important;
+        font-weight: 800;
+        font-size: 42px !important;
+    }
+    div[data-testid="stMetricLabel"] { color: #666666; font-size: 14px; }
+    
+    /* 6. 버튼 스타일 */
     div.stButton > button {
         background-color: #2962FF;
         color: white;
@@ -77,13 +89,13 @@ st.markdown("""
         transform: translateY(-2px);
     }
     
-    /* 6. 입력창 포커스 색상 */
+    /* 7. 입력창 포커스 색상 */
     .stTextInput > div > div > input:focus {
         border-color: #2962FF !important;
         box-shadow: 0 0 0 1px #2962FF !important;
     }
     
-    /* 7. 커스텀 박스 스타일 */
+    /* 8. 커스텀 박스 스타일 */
     .info-box {
         background-color: #E3F2FD;
         padding: 20px;
@@ -115,6 +127,8 @@ lang_dict = {
         'show_store': "안심 편의점 (Store)",
         'error_file': "⚠️ 데이터 파일을 찾을 수 없습니다. (seoul_toilet.csv)",
         'success_loc': "📍 위치 확인됨: {}",
+        'metric_label': "검색된 시설",
+        'metric_dist': "가장 가까운 곳",
         'search_placeholder': "시설 이름으로 검색...",
         'select_label': "시설 선택 (상세보기)",
         'warn_no_result': "검색 결과가 없습니다.",
@@ -152,6 +166,8 @@ lang_dict = {
         'show_store': "Convenience Store",
         'error_file': "⚠️ Data file missing. (seoul_toilet.csv)",
         'success_loc': "📍 Location: {}",
+        'metric_label': "Found Places",
+        'metric_dist': "Nearest",
         'search_placeholder': "Search by name...",
         'select_label': "Select Place",
         'warn_no_result': "No results found.",
@@ -298,7 +314,7 @@ df_subway, df_store = get_sample_extra_data()
 row = None
 
 if user_address and df_toilet is not None:
-    geolocator = Nominatim(user_agent="korea_toilet_final_clean", timeout=10)
+    geolocator = Nominatim(user_agent="korea_toilet_final_blue_fixed", timeout=10)
     try:
         search_query = f"Seoul {user_address}" if "Seoul" not in user_address and "서울" not in user_address else user_address
         location = geolocator.geocode(search_query)
@@ -320,7 +336,14 @@ if user_address and df_toilet is not None:
             df_store['dist'] = df_store.apply(calculate_distance, axis=1)
             nearby_store = df_store[df_store['dist'] <= search_radius]
             
-            # 🧹 [삭제됨] 통계(Metric) 섹션 삭제 완료!
+            st.markdown("---")
+            m_col1, m_col2, m_col3 = st.columns(3)
+            with m_col1: st.metric(label="TOILET", value=f"{len(nearby_toilet)}")
+            with m_col2: st.metric(label="SUBWAY", value=f"{len(nearby_subway)}")
+            with m_col3:
+                 if not nearby_toilet.empty: st.metric(label="NEAREST", value=f"{nearby_toilet.iloc[0]['dist']:.1f} km")
+                 else: st.metric(label="NEAREST", value="-")
+            st.markdown("---")
 
             # 🤖 AI 화장실 소믈리에
             if not nearby_toilet.empty:
