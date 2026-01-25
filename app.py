@@ -134,23 +134,19 @@ def inject_css():
             /* -----------------------------
                Tabs styling (bigger + blue + 강조)
                ----------------------------- */
-            /* 탭 전체 영역 */
             div[data-testid="stTabs"] {
                 margin-top: 8px;
             }
-            /* 탭 버튼들 */
             div[data-testid="stTabs"] button {
                 font-size: 20px !important;
                 font-weight: 900 !important;
                 color: #2962FF !important;
                 padding: 10px 16px !important;
             }
-            /* 선택된 탭(aria-selected="true") */
             div[data-testid="stTabs"] button[aria-selected="true"] {
                 color: #002ba1 !important;
                 border-bottom: 4px solid #2962FF !important;
             }
-            /* 탭 밑줄 라인(기본 border) 약하게 */
             div[data-testid="stTabs"] [data-baseweb="tab-list"] {
                 border-bottom: 1px solid #E3F2FD !important;
             }
@@ -212,7 +208,8 @@ LANG = {
         "facility": "시설",
         "question_label": "💬 질문",
         "search_web": "웹에서 보기",
-        "route_naver": "네이버지도 길찾기",
+        "route_try": "앱으로 길찾기(시도)",
+        "route_note": "* PC에서는 앱 링크가 제한될 수 있어요.",
     },
     "en": {
         "desc": "Find nearby public toilets, subway stations, and safe stores.",
@@ -262,7 +259,8 @@ LANG = {
         "facility": "Facility",
         "question_label": "💬 Question",
         "search_web": "Open on web",
-        "route_naver": "Naver route",
+        "route_try": "Try route in app",
+        "route_note": "* Desktop browsers may block app links.",
     },
 }
 
@@ -348,7 +346,7 @@ def load_sample_extra_data():
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def geocode_address(raw_address: str):
-    geolocator = Nominatim(user_agent="seoul_toilet_finder_v4", timeout=10)
+    geolocator = Nominatim(user_agent="seoul_toilet_finder_v5", timeout=10)
     search_query = (
         f"Seoul {raw_address}"
         if ("Seoul" not in raw_address and "서울" not in raw_address)
@@ -512,11 +510,12 @@ def build_map(
 
     marker_cluster = MarkerCluster().add_to(m)
 
-    # ✅ Toilets: hover tooltip + click popup with Naver route link
+    # ✅ Toilets: hover tooltip + click popup with "app try + web fallback"
     if show_toilet and nearby_toilet is not None and not nearby_toilet.empty:
         for _, r in nearby_toilet.iterrows():
             is_selected = (selected_name is not None and r["name"] == selected_name)
 
+            # 앱 URL Scheme (모바일에서만 성공 가능성이 큼)
             route_url = naver_route_link(
                 user_lat=user_lat,
                 user_lon=user_lon,
@@ -525,41 +524,59 @@ def build_map(
                 dest_name=r["name"],
                 mode="walk",
             )
-            # PC 대비: 네이버지도 웹 검색
-            search_url = f"https://map.naver.com/v5/search/{quote(str(r['name']))}"
 
+            # 웹 링크(PC/모바일 모두 확실)
+            web_url = f"https://map.naver.com/v5/search/{quote(str(r['name']))}"
+
+            # ✅ 버튼은 항상 web_url로 이동(먹통 방지)
+            # onclick에서 iframe으로 nmap:// 호출을 "시도" (모바일 성공률 ↑)
             popup_html = f"""
             <div style="font-family:Pretendard, sans-serif; font-size:14px;">
               <div style="font-weight:900; margin-bottom:6px;">🚻 {r['name']}</div>
               <div style="color:#666; margin-bottom:10px;">약 {float(r['dist']):.2f} km</div>
+
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <a href="{route_url}" style="text-decoration:none;">
+                <a href="{web_url}" onclick="
+                    try {{
+                      var ifr = document.createElement('iframe');
+                      ifr.style.display = 'none';
+                      ifr.src = '{route_url}';
+                      document.body.appendChild(ifr);
+                      setTimeout(function(){{}}, 1200);
+                    }} catch(e) {{}}
+                  " style="text-decoration:none;">
                   <span style="background:#2962FF; color:white; padding:6px 10px; border-radius:8px; font-weight:800;">
-                    {txt['route_naver']}
+                    {txt['route_try']}
                   </span>
                 </a>
-                <a href="{search_url}" target="_blank" style="text-decoration:none;">
+
+                <a href="{web_url}" target="_blank" style="text-decoration:none;">
                   <span style="background:#E3F2FD; color:#0D47A1; padding:6px 10px; border-radius:8px; font-weight:800; border:1px solid #90CAF9;">
                     {txt['search_web']}
                   </span>
                 </a>
               </div>
+
+              <div style="margin-top:8px; font-size:12px; color:#7a7a7a;">
+                {txt['route_note']}
+              </div>
             </div>
             """
-            popup = folium.Popup(folium.IFrame(html=popup_html, width=280, height=150), max_width=320)
+
+            popup = folium.Popup(folium.IFrame(html=popup_html, width=300, height=165), max_width=340)
 
             if is_selected:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    tooltip=r["name"],   # ✅ hover
-                    popup=popup,         # ✅ click
+                    tooltip=r["name"],  # hover
+                    popup=popup,        # click
                     icon=folium.Icon(color="green", icon="star"),
                 ).add_to(m)
             else:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    tooltip=r["name"],   # ✅ hover
-                    popup=popup,         # ✅ click
+                    tooltip=r["name"],  # hover
+                    popup=popup,        # click
                     icon=folium.Icon(color="green", icon="info-sign"),
                 ).add_to(marker_cluster)
 
