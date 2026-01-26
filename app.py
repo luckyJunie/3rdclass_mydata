@@ -1,3 +1,5 @@
+#20260126
+
 import os
 from datetime import datetime
 from urllib.parse import quote
@@ -35,11 +37,13 @@ def get_secret(key: str) -> str:
     except Exception:
         return ""
 
+# API 키 한 번에 불러오기 (캐싱)
 @st.cache_data(ttl=3600)
 def get_api_keys():
     youtube = get_secret("YOUTUBE_API_KEY")
     openai_key = get_secret("OPENAI_API_KEY")
-    seoul = get_secret("SEOUL_API_KEY")
+    seoul = get_secret("SEOUL_API_KEY")  # 나중에 사용 가능
+
     return youtube, openai_key, seoul
 
 YOUTUBE_API_KEY, OPENAI_API_KEY, SEOUL_API_KEY = get_api_keys()
@@ -261,10 +265,9 @@ def init_session_state():
 
 def toggle_language():
     st.session_state.lang = "en" if st.session_state.lang == "ko" else "ko"
-    st.rerun()  # ← 핵심: 언어 변경 시 전체 페이지 새로고침 → 모든 텍스트/탭/라벨 재렌더링
 
 # -----------------------------
-# Data Loading
+# Data Loading (CSV 버전 유지 - 나중에 API로 교체 가능)
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_toilet_data(file_path: str = "seoul_toilet.csv") -> pd.DataFrame:
@@ -327,7 +330,7 @@ def load_sample_extra_data():
     return pd.DataFrame(subway_data), pd.DataFrame(store_data)
 
 # -----------------------------
-# Geo & Distance
+# Geo
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def geocode_address(raw_address: str):
@@ -347,7 +350,7 @@ def add_distance(df: pd.DataFrame, user_lat: float, user_lon: float) -> pd.DataF
     return out
 
 # -----------------------------
-# Naver Route
+# Naver Map Route Link
 # -----------------------------
 def naver_route_link(user_lat, user_lon, dest_lat, dest_lon, dest_name, mode="walk"):
     sname = quote("현재 위치")
@@ -361,7 +364,7 @@ def naver_route_link(user_lat, user_lon, dest_lat, dest_lon, dest_name, mode="wa
     )
 
 # -----------------------------
-# YouTube Search
+# YouTube
 # -----------------------------
 @st.cache_data(show_spinner=False, ttl=60 * 20)
 def search_youtube_videos(query: str, api_key: str, max_results: int = 3):
@@ -397,7 +400,7 @@ def save_feedback(fb_type: str, message: str, file_name: str = "user_feedback.cs
         new_data.to_csv(file_name, mode="a", header=False, index=False, encoding="utf-8-sig")
 
 # -----------------------------
-# AI Recommendation
+# AI
 # -----------------------------
 def ask_ai_recommendation(df_nearby: pd.DataFrame, user_query: str, api_key: str) -> str:
     if not api_key:
@@ -440,7 +443,7 @@ def ask_ai_recommendation(df_nearby: pd.DataFrame, user_query: str, api_key: str
         return f"AI 연결 오류: {e}"
 
 # -----------------------------
-# Map Helpers
+# Map helpers
 # -----------------------------
 def facility_icons(row: pd.Series) -> str:
     icons = ""
@@ -566,7 +569,7 @@ def build_map(
     return m
 
 # -----------------------------
-# UI Components
+# UI
 # -----------------------------
 def sidebar_ui(txt: dict):
     with st.sidebar:
@@ -601,7 +604,10 @@ def top_header(txt: dict):
 # Main
 # -----------------------------
 def main():
-    init_session_state()
+    # session_state 초기화 (함수 호출 대신 직접 처리 → NameError 방지)
+    if "lang" not in st.session_state:
+        st.session_state.lang = "ko"
+
     inject_css()
     txt = LANG[st.session_state.lang]
 
@@ -656,6 +662,7 @@ def main():
     )
 
     selected_name = None
+    selected_row = None
 
     with tab_list:
         if nearby_toilet.empty:
@@ -677,7 +684,7 @@ def main():
                     selected_row = filtered[filtered["name"] == selected_name].iloc[0]
 
             with right:
-                if 'selected_row' in locals() and selected_row is not None:
+                if selected_row is not None:
                     st.markdown(
                         f"""
                         <div class="card">
