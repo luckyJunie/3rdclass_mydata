@@ -1,9 +1,10 @@
-#20260126
-
 import os
+import time
+import html
 from datetime import datetime
 from urllib.parse import quote
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import requests
@@ -13,9 +14,8 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 
 from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
-
 import openai
+
 
 # -----------------------------
 # Page Config
@@ -28,6 +28,7 @@ st.set_page_config(
 
 APP_TITLE_HTML = '<h1 class="big-title">SEOUL<br>TOILET FINDER</h1>'
 
+
 # -----------------------------
 # Secrets (API keys)
 # -----------------------------
@@ -37,16 +38,17 @@ def get_secret(key: str) -> str:
     except Exception:
         return ""
 
-# API 키 한 번에 불러오기 (캐싱)
-@st.cache_data(ttl=3600)
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_api_keys():
     youtube = get_secret("YOUTUBE_API_KEY")
     openai_key = get_secret("OPENAI_API_KEY")
-    seoul = get_secret("SEOUL_API_KEY")  # 나중에 사용 가능
-
+    seoul = get_secret("SEOUL_API_KEY")  # optional future
     return youtube, openai_key, seoul
 
+
 YOUTUBE_API_KEY, OPENAI_API_KEY, SEOUL_API_KEY = get_api_keys()
+
 
 # -----------------------------
 # Styles
@@ -130,6 +132,7 @@ def inject_css():
                 border:1px solid #E0E0E0;
             }
 
+            /* Tabs styling (bigger + blue + 강조) */
             div[data-testid="stTabs"] {
                 margin-top: 8px;
             }
@@ -150,6 +153,7 @@ def inject_css():
         """,
         unsafe_allow_html=True,
     )
+
 
 # -----------------------------
 # i18n
@@ -203,8 +207,11 @@ LANG = {
         "facility": "시설",
         "question_label": "💬 질문",
         "search_web": "웹에서 보기",
-        "route_try": "앱으로 길찾기(시도)",
-        "route_note": "* PC에서는 앱 링크가 제한될 수 있어요.",
+        "route_try": "앱으로 길찾기",
+        "route_note": "* PC에서는 앱 링크가 제한될 수 있어요. (웹으로 자동 이동)",
+        "enter_location_hint": "사이드바에서 위치를 입력해 주세요.",
+        "vlog_empty": "관련 영상을 찾을 수 없습니다.",
+        "admin_feedback_missing": "아직 피드백이 없습니다.",
     },
     "en": {
         "desc": "Find nearby public toilets, subway stations, and safe stores.",
@@ -254,23 +261,30 @@ LANG = {
         "facility": "Facility",
         "question_label": "💬 Question",
         "search_web": "Open on web",
-        "route_try": "Try route in app",
-        "route_note": "* Desktop browsers may block app links.",
+        "route_try": "Route in app",
+        "route_note": "* Desktop may block app links. (Auto fallback to web)",
+        "enter_location_hint": "Enter a location in the sidebar.",
+        "vlog_empty": "No related videos found.",
+        "admin_feedback_missing": "No feedback yet.",
     },
 }
+
 
 def init_session_state():
     if "lang" not in st.session_state:
         st.session_state.lang = "ko"
 
+
 def toggle_language():
     st.session_state.lang = "en" if st.session_state.lang == "ko" else "ko"
 
+
 # -----------------------------
-# Data Loading (CSV 버전 유지 - 나중에 API로 교체 가능)
+# Data Loading
 # -----------------------------
 @st.cache_data(show_spinner=False)
 def load_toilet_data(file_path: str = "seoul_toilet.csv") -> pd.DataFrame:
+    df = None
     for enc in ("utf-8", "cp949", "euc-kr"):
         try:
             df = pd.read_csv(file_path, encoding=enc)
@@ -300,13 +314,21 @@ def load_toilet_data(file_path: str = "seoul_toilet.csv") -> pd.DataFrame:
         else:
             df[col] = df[col].fillna("정보없음")
 
-    for col in df.select_dtypes(include='object').columns:
-        df[col] = df[col].str.replace("|", "", regex=False)
+    # Clean pipes (|)
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].astype(str).str.replace("|", "", regex=False)
 
+    # Basic bounds for Seoul-ish
     if "lat" in df.columns and "lon" in df.columns:
         df = df[(df["lat"] > 37.4) & (df["lat"] < 37.8) & (df["lon"] > 126.7) & (df["lon"] < 127.3)]
 
-    return df
+    # Ensure numeric
+    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+    df = df.dropna(subset=["lat", "lon"])
+
+    return df.reset_index(drop=True)
+
 
 @st.cache_data(show_spinner=False)
 def load_sample_extra_data():
@@ -329,25 +351,69 @@ def load_sample_extra_data():
     ]
     return pd.DataFrame(subway_data), pd.DataFrame(store_data)
 
+
 # -----------------------------
-# Geo
+# Geo (Geocoding + Distance)
 # -----------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)  # 24h cache
 def geocode_address(raw_address: str):
-    geolocator = Nominatim(user_agent="seoul_toilet_finder_v5", timeout=10)
+    """
+    Nominatim can be flaky; we retry with backoff to reduce failure rate.
+    """
+    geolocator = Nominatim(user_agent="seoul_toilet_finder_v6", timeout=10)
     search_query = f"Seoul {raw_address}" if "Seoul" not in raw_address and "서울" not in raw_address else raw_address
-    loc = geolocator.geocode(search_query)
-    if not loc:
-        return None
-    return float(loc.latitude), float(loc.longitude), loc.address
 
-def add_distance(df: pd.DataFrame, user_lat: float, user_lon: float) -> pd.DataFrame:
-    def _dist(row):
-        return geodesic((user_lat, user_lon), (row["lat"], row["lon"])).km
+    for attempt in range(3):
+        try:
+            loc = geolocator.geocode(search_query)
+            if loc:
+                return float(loc.latitude), float(loc.longitude), loc.address
+        except Exception:
+            pass
+        time.sleep(0.6 * (attempt + 1))  # backoff
 
+    return None
+
+
+def _haversine_km(lat1, lon1, lat2_arr, lon2_arr) -> np.ndarray:
+    """
+    Vectorized Haversine distance (km)
+    """
+    R = 6371.0088
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2_arr)
+    lon2 = np.radians(lon2_arr)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * (np.sin(dlon / 2.0) ** 2)
+    c = 2 * np.arcsin(np.sqrt(a))
+    return R * c
+
+
+def _bounding_box(user_lat: float, user_lon: float, radius_km: float):
+    """
+    Rough bounding box (degrees) for prefiltering.
+    """
+    lat_delta = radius_km / 111.32
+    lon_delta = radius_km / (111.32 * max(np.cos(np.radians(user_lat)), 1e-6))
+    return (
+        user_lat - lat_delta,
+        user_lat + lat_delta,
+        user_lon - lon_delta,
+        user_lon + lon_delta,
+    )
+
+
+def add_distance_fast(df: pd.DataFrame, user_lat: float, user_lon: float) -> pd.DataFrame:
+    """
+    Adds 'dist' column with vectorized Haversine distance.
+    """
     out = df.copy()
-    out["dist"] = out.apply(_dist, axis=1)
+    out["dist"] = _haversine_km(user_lat, user_lon, out["lat"].to_numpy(), out["lon"].to_numpy())
     return out
+
 
 # -----------------------------
 # Naver Map Route Link
@@ -362,6 +428,7 @@ def naver_route_link(user_lat, user_lon, dest_lat, dest_lon, dest_name, mode="wa
         f"&dlat={dest_lat}&dlng={dest_lon}&dname={dname}"
         f"&appname={appname}"
     )
+
 
 # -----------------------------
 # YouTube
@@ -388,6 +455,7 @@ def search_youtube_videos(query: str, api_key: str, max_results: int = 3):
     except Exception:
         return []
 
+
 # -----------------------------
 # Feedback
 # -----------------------------
@@ -398,6 +466,7 @@ def save_feedback(fb_type: str, message: str, file_name: str = "user_feedback.cs
         new_data.to_csv(file_name, index=False, encoding="utf-8-sig")
     else:
         new_data.to_csv(file_name, mode="a", header=False, index=False, encoding="utf-8-sig")
+
 
 # -----------------------------
 # AI
@@ -442,6 +511,7 @@ def ask_ai_recommendation(df_nearby: pd.DataFrame, user_query: str, api_key: str
     except Exception as e:
         return f"AI 연결 오류: {e}"
 
+
 # -----------------------------
 # Map helpers
 # -----------------------------
@@ -460,6 +530,7 @@ def facility_icons(row: pd.Series) -> str:
     if unisex == "Y":
         icons += "👫"
     return icons.strip()
+
 
 def build_map(
     user_lat: float,
@@ -496,22 +567,36 @@ def build_map(
                 mode="walk",
             )
 
+            # Web fallback always works (PC/Mobile)
             web_url = f"https://map.naver.com/v5/search/{quote(str(r['name']))}"
 
+            # Safe text for HTML
+            safe_name = html.escape(str(r["name"]))
+            safe_dist = f"{float(r['dist']):.2f}"
+
+            # ✅ 핵심 UX 개선:
+            # - 클릭 시 default 이동을 막고
+            # - nmap:// 먼저 시도 (iframe)
+            # - 0.9초 후 웹으로 fallback 이동 (PC에서도 '먹통' 없음)
             popup_html = f"""
             <div style="font-family:Pretendard, sans-serif; font-size:14px;">
-              <div style="font-weight:900; margin-bottom:6px;">🚻 {r['name']}</div>
-              <div style="color:#666; margin-bottom:10px;">약 {float(r['dist']):.2f} km</div>
+              <div style="font-weight:900; margin-bottom:6px;">🚻 {safe_name}</div>
+              <div style="color:#666; margin-bottom:10px;">약 {safe_dist} km</div>
 
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <a href="{web_url}" onclick="
+                <a href="#" onclick="
                     try {{
+                      event.preventDefault();
                       var ifr = document.createElement('iframe');
                       ifr.style.display = 'none';
                       ifr.src = '{route_url}';
                       document.body.appendChild(ifr);
-                      setTimeout(function(){{}}, 1200);
-                    }} catch(e) {{}}
+                      setTimeout(function(){{ window.location.href = '{web_url}'; }}, 900);
+                      return false;
+                    }} catch(e) {{
+                      window.location.href = '{web_url}';
+                      return false;
+                    }}
                   " style="text-decoration:none;">
                   <span style="background:#2962FF; color:white; padding:6px 10px; border-radius:8px; font-weight:800;">
                     {txt['route_try']}
@@ -531,19 +616,19 @@ def build_map(
             </div>
             """
 
-            popup = folium.Popup(folium.IFrame(html=popup_html, width=300, height=165), max_width=340)
+            popup = folium.Popup(folium.IFrame(html=popup_html, width=320, height=175), max_width=360)
 
             if is_selected:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    tooltip=r["name"],
+                    tooltip=str(r["name"]),
                     popup=popup,
                     icon=folium.Icon(color="green", icon="star"),
                 ).add_to(m)
             else:
                 folium.Marker(
                     [r["lat"], r["lon"]],
-                    tooltip=r["name"],
+                    tooltip=str(r["name"]),
                     popup=popup,
                     icon=folium.Icon(color="green", icon="info-sign"),
                 ).add_to(marker_cluster)
@@ -552,8 +637,8 @@ def build_map(
         for _, r in nearby_subway.iterrows():
             folium.Marker(
                 [r["lat"], r["lon"]],
-                popup=f"<b>🚇 {r['name']}</b>",
-                tooltip=r["name"],
+                popup=f"<b>🚇 {html.escape(str(r['name']))}</b>",
+                tooltip=str(r["name"]),
                 icon=folium.Icon(color="orange", icon="arrow-down", prefix="fa"),
             ).add_to(m)
 
@@ -561,12 +646,13 @@ def build_map(
         for _, r in nearby_store.iterrows():
             folium.Marker(
                 [r["lat"], r["lon"]],
-                popup=f"<b>🏪 {r['name']}</b>",
-                tooltip=r["name"],
+                popup=f"<b>🏪 {html.escape(str(r['name']))}</b>",
+                tooltip=str(r["name"]),
                 icon=folium.Icon(color="purple", icon="shopping-cart", prefix="fa"),
             ).add_to(m)
 
     return m
+
 
 # -----------------------------
 # UI
@@ -587,27 +673,26 @@ def sidebar_ui(txt: dict):
         search_radius = st.slider(txt["radius_label"], 0.5, 5.0, 1.0)
 
         st.divider()
-        if st.checkbox("Admin Mode"):
+        if st.checkbox(txt["admin_mode"]):
             if os.path.exists("user_feedback.csv"):
                 st.write(txt["feedback_list"] + ":")
                 st.dataframe(pd.read_csv("user_feedback.csv"))
             else:
-                st.caption(txt["no_feedback"])
+                st.caption(txt.get("admin_feedback_missing", txt["no_feedback"]))
 
     return user_address, search_radius, show_toilet, show_subway, show_store
+
 
 def top_header(txt: dict):
     st.markdown(APP_TITLE_HTML, unsafe_allow_html=True)
     st.caption(txt["desc"])
 
+
 # -----------------------------
 # Main
 # -----------------------------
 def main():
-    # session_state 초기화 (함수 호출 대신 직접 처리 → NameError 방지)
-    if "lang" not in st.session_state:
-        st.session_state.lang = "ko"
-
+    init_session_state()
     inject_css()
     txt = LANG[st.session_state.lang]
 
@@ -623,7 +708,7 @@ def main():
     df_subway, df_store = load_sample_extra_data()
 
     if not user_address:
-        st.info("사이드바에서 위치를 입력해 주세요.")
+        st.info(txt["enter_location_hint"])
         st.stop()
 
     loc = geocode_address(user_address)
@@ -633,19 +718,28 @@ def main():
 
     user_lat, user_lon, full_addr = loc
     st.markdown(
-        f'<div class="location-box">{txt["success_loc"].format(full_addr)}</div>',
+        f'<div class="location-box">{txt["success_loc"].format(html.escape(str(full_addr)))}</div>',
         unsafe_allow_html=True,
     )
 
-    df_toilet_d = add_distance(df_toilet, user_lat, user_lon)
+    # ✅ Prefilter by bounding box (performance)
+    lat_min, lat_max, lon_min, lon_max = _bounding_box(user_lat, user_lon, search_radius + 0.3)
+    df_toilet_pref = df_toilet[
+        (df_toilet["lat"] >= lat_min) & (df_toilet["lat"] <= lat_max) &
+        (df_toilet["lon"] >= lon_min) & (df_toilet["lon"] <= lon_max)
+    ].copy()
+
+    # ✅ Fast vectorized distances
+    df_toilet_d = add_distance_fast(df_toilet_pref, user_lat, user_lon)
     nearby_toilet = df_toilet_d[df_toilet_d["dist"] <= search_radius].sort_values("dist")
 
-    df_subway_d = add_distance(df_subway, user_lat, user_lon)
+    df_subway_d = add_distance_fast(df_subway, user_lat, user_lon)
     nearby_subway = df_subway_d[df_subway_d["dist"] <= search_radius].sort_values("dist")
 
-    df_store_d = add_distance(df_store, user_lat, user_lon)
+    df_store_d = add_distance_fast(df_store, user_lat, user_lon)
     nearby_store = df_store_d[df_store_d["dist"] <= search_radius].sort_values("dist")
 
+    # Metrics
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -664,6 +758,7 @@ def main():
     selected_name = None
     selected_row = None
 
+    # List Tab
     with tab_list:
         if nearby_toilet.empty:
             st.warning(txt["warn_no_result"])
@@ -671,11 +766,10 @@ def main():
             left, right = st.columns([1, 1])
             with left:
                 search_keyword = st.text_input("🔍 " + txt["search_placeholder"])
-                filtered = (
-                    nearby_toilet[nearby_toilet["name"].str.contains(search_keyword, na=False)]
-                    if search_keyword
-                    else nearby_toilet
-                )
+                if search_keyword:
+                    filtered = nearby_toilet[nearby_toilet["name"].astype(str).str.contains(search_keyword, na=False)]
+                else:
+                    filtered = nearby_toilet
 
                 if filtered.empty:
                     st.warning(txt["warn_no_result"])
@@ -688,9 +782,9 @@ def main():
                     st.markdown(
                         f"""
                         <div class="card">
-                            <h4 style="color:#2962FF; margin-top:0;">{selected_row['name']}</h4>
-                            <p style="margin-bottom:8px;"><b>📍 {txt['col_addr']}</b><br>{selected_row.get('addr','-')}</p>
-                            <p style="margin-bottom:0px;"><b>⏰ {txt['col_time']}</b><br>{selected_row.get('hours','-')}</p>
+                            <h4 style="color:#2962FF; margin-top:0;">{html.escape(str(selected_row['name']))}</h4>
+                            <p style="margin-bottom:8px;"><b>📍 {txt['col_addr']}</b><br>{html.escape(str(selected_row.get('addr','-')))}</p>
+                            <p style="margin-bottom:0px;"><b>⏰ {txt['col_time']}</b><br>{html.escape(str(selected_row.get('hours','-')))}</p>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -711,6 +805,7 @@ def main():
                 hide_index=True,
             )
 
+    # Map Tab
     with tab_map:
         m = build_map(
             user_lat=user_lat,
@@ -724,8 +819,9 @@ def main():
             show_store=show_store,
             selected_name=selected_name,
         )
-        st_folium(m, width=1100, height=560)
+        st_folium(m, height=560, use_container_width=True)
 
+    # AI Tab
     with tab_ai:
         if nearby_toilet.empty:
             st.warning(txt["warn_no_result"])
@@ -750,6 +846,7 @@ def main():
                             ans = ask_ai_recommendation(nearby_toilet, user_question, OPENAI_API_KEY)
                             st.info(ans)
 
+    # Vlog Tab
     with tab_vlog:
         if not YOUTUBE_API_KEY:
             st.warning(txt["youtube_need_key"])
@@ -764,8 +861,9 @@ def main():
                         st.video(url)
                 st.caption(f"👀 '{query}' 검색 결과")
             else:
-                st.caption("관련 영상을 찾을 수 없습니다.")
+                st.caption(txt["vlog_empty"])
 
+    # Feedback Tab
     with tab_feedback:
         st.subheader(txt["fb_title"])
         with st.form("feedback_form"):
@@ -775,6 +873,7 @@ def main():
             if sent:
                 save_feedback(fb_type, fb_msg)
                 st.success(txt["fb_success"])
+
 
 if __name__ == "__main__":
     main()
